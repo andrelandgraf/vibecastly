@@ -7,10 +7,16 @@ import config from './neon.js';
  * `neon dev`, `neon-env run -- …`, or a hosting platform) against the `neon.ts` policy
  * and returns the typed `NeonEnv` shape.
  *
+ * No branch name is needed: the secret set is static (top-level `auth` / `dataApi`).
+ * Omitting the scope reads "external" env (app / build). Inside a deployed function you'd
+ * pass its slug instead — e.g. `parseEnv(config, 'hello').function.resendApiKey`.
+ *
  * Run with the vars injected, e.g.:
  *   neon-env run -- bun run index.ts
  *   neonctl-test dev   # serves the functions; this script is just for the env demo
  */
-const env = parseEnv(config, process.env.NEON_BRANCH_NAME ?? 'main');
+const env = parseEnv(config);
 console.log('Pooled DATABASE_URL:', env.postgres.databaseUrl);
 console.log('Direct  DATABASE_URL:', env.postgres.databaseUrlUnpooled);
+// auth is statically present because the policy sets `auth: true`.
+console.log('Neon Auth base URL:', env.auth.baseUrl);
