@@ -14,6 +14,13 @@ function mentionRegex(name: string): RegExp {
   return new RegExp(`@${escapeRegex(name)}(?![\\w])`);
 }
 
+const SUGGESTIONS = [
+  'A watercolor of a sleepy elephant',
+  'A neon-lit Tokyo alley at night, cinematic',
+  'A minimalist logo of a paper plane',
+  'A cozy cabin in a snowy forest',
+];
+
 export function MentionComposer({
   people,
   status,
@@ -161,9 +168,27 @@ export function MentionComposer({
           </div>
         )}
       </div>
-      <p className="text-muted-foreground mt-1.5 px-1 text-xs">
-        {busy ? 'Generating your image…' : 'Press Enter to generate · Shift+Enter for a new line'}
-      </p>
+      {text.trim().length === 0 ? (
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className="text-muted-foreground hover:border-primary/40 hover:text-foreground rounded-full border px-2.5 py-1 text-xs transition-colors"
+              onClick={() => {
+                setText(s);
+                requestAnimationFrame(() => textareaRef.current?.focus());
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-muted-foreground mt-1.5 px-1 text-xs">
+          Press Enter to generate · Shift+Enter for a new line
+        </p>
+      )}
     </div>
   );
 }

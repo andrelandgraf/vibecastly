@@ -2,22 +2,17 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { authClient } from '@/lib/auth/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, AtSign, Users, Wand2 } from 'lucide-react';
 
 type Mode = 'signin' | 'signup';
+
+const showcase = ['/showcase/3.jpg', '/showcase/1.jpg', '/showcase/4.jpg'];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -55,24 +50,74 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="space-y-1">
-          <div className="flex items-center gap-2 text-primary">
-            <Sparkles className="size-5" />
-            <span className="font-display font-semibold">Neon Image Studio</span>
+    <main className="grid min-h-screen lg:grid-cols-2">
+      {/* Brand / showcase panel */}
+      <div className="relative hidden overflow-hidden border-r lg:flex lg:flex-col lg:justify-between lg:p-10">
+        <div className="bg-primary/20 animate-pulse-glow absolute -top-24 -left-24 size-96 rounded-full blur-3xl" />
+        <Link href="/" className="relative flex items-center gap-2">
+          <div className="bg-primary/15 ring-primary/20 flex size-7 items-center justify-center rounded-lg ring-1">
+            <Sparkles className="size-4 text-primary" />
           </div>
-          <CardTitle className="font-display text-2xl">
+          <span className="font-display text-[15px] font-semibold">Neon Image Studio</span>
+        </Link>
+
+        <div className="relative">
+          <div className="mb-8 flex gap-4">
+            {showcase.map((src, i) => (
+              <div
+                key={i}
+                style={{ animationDelay: `${i * 0.8}s`, rotate: `${i % 2 === 0 ? -6 : 6}deg` }}
+                className="animate-float aspect-square w-28 overflow-hidden rounded-2xl border shadow-2xl"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt="" className="size-full object-cover" />
+              </div>
+            ))}
+          </div>
+          <h2 className="font-display max-w-sm text-3xl font-semibold leading-tight">
+            Cast anyone into{' '}
+            <span className="from-primary bg-gradient-to-r to-emerald-300 bg-clip-text text-transparent">
+              any scene.
+            </span>
+          </h2>
+          <ul className="text-muted-foreground mt-6 space-y-2.5 text-sm">
+            <li className="flex items-center gap-2">
+              <AtSign className="size-4 text-primary" /> @-mention people as references
+            </li>
+            <li className="flex items-center gap-2">
+              <Users className="size-4 text-primary" /> Shared team workspaces
+            </li>
+            <li className="flex items-center gap-2">
+              <Wand2 className="size-4 text-primary" /> Generate many at once
+            </li>
+          </ul>
+        </div>
+
+        <p className="text-muted-foreground relative text-xs">
+          Built on Neon — Auth · Functions · Storage · AI Gateway · Postgres.
+        </p>
+      </div>
+
+      {/* Auth form */}
+      <div className="flex items-center justify-center p-6">
+        <div className="w-full max-w-sm">
+          <Link href="/" className="mb-8 flex items-center gap-2 lg:hidden">
+            <div className="bg-primary/15 ring-primary/20 flex size-7 items-center justify-center rounded-lg ring-1">
+              <Sparkles className="size-4 text-primary" />
+            </div>
+            <span className="font-display text-[15px] font-semibold">Neon Image Studio</span>
+          </Link>
+
+          <h1 className="font-display text-2xl font-semibold">
             {mode === 'signin' ? 'Welcome back' : 'Create your account'}
-          </CardTitle>
-          <CardDescription>
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
             {mode === 'signin'
               ? 'Sign in to generate and manage your AI images.'
               : 'Sign up to start generating AI images.'}
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
+          </p>
+
+          <form onSubmit={handleSubmit} className="mt-7 space-y-4">
             {mode === 'signup' && (
               <div className="space-y-2">
                 <Label htmlFor="name">Name</Label>
@@ -110,24 +155,23 @@ export default function LoginPage() {
                 autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
               />
             </div>
-          </CardContent>
-          <CardFooter className="flex-col gap-3 pt-2">
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" size="lg" disabled={loading}>
               {loading && <Loader2 className="size-4 animate-spin" />}
               {mode === 'signin' ? 'Sign in' : 'Create account'}
             </Button>
-            <button
-              type="button"
-              className="text-muted-foreground text-sm hover:text-foreground"
-              onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-            >
-              {mode === 'signin'
-                ? "Don't have an account? Sign up"
-                : 'Already have an account? Sign in'}
-            </button>
-          </CardFooter>
-        </form>
-      </Card>
+          </form>
+
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground mt-5 text-sm"
+            onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+          >
+            {mode === 'signin'
+              ? "Don't have an account? Sign up"
+              : 'Already have an account? Sign in'}
+          </button>
+        </div>
+      </div>
     </main>
   );
 }
