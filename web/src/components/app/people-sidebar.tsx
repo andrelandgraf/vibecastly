@@ -172,6 +172,12 @@ export function PeopleSidebar({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Andre"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && name.trim() && file && !busy) {
+                    e.preventDefault();
+                    void handleAdd();
+                  }
+                }}
               />
             </div>
           </div>

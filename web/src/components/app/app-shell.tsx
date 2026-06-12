@@ -1,19 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
 import { toast } from 'sonner';
 import { Sparkles, LogOut, Building2 } from 'lucide-react';
 import { authClient } from '@/lib/auth/client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
-  getToken,
-  getActiveOrg,
-  setActiveOrg,
+  generate,
   agentConfigured,
+  setActiveOrg,
   listImages,
   listPeople,
   type ImageRecord,
@@ -25,8 +22,11 @@ import { ImageGallery } from './image-gallery';
 import { OrgSwitcher } from './org-switcher';
 import { InvitationsMenu } from './invitations-menu';
 import { TeamDialog } from './team-dialog';
+import { JobsPanel, type Job } from './jobs-panel';
 
-const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL ?? '';
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 export function AppShell({ userName, userEmail }: { userName: string; userEmail: string }) {
   const router = useRouter();
@@ -37,6 +37,7 @@ export function AppShell({ userName, userEmail }: { userName: string; userEmail:
   const [people, setPeople] = useState<PersonRecord[]>([]);
   const [images, setImages] = useState<ImageRecord[]>([]);
   const [loadingImages, setLoadingImages] = useState(true);
+  const [jobs, setJobs] = useState<Job[]>([]);
 
   const refreshPeople = useCallback(async () => {
     try {
@@ -56,14 +57,12 @@ export function AppShell({ userName, userEmail }: { userName: string; userEmail:
     }
   }, []);
 
-  // Auto-select the first workspace when none is active.
   useEffect(() => {
     if (!orgId && Array.isArray(orgs) && orgs.length > 0) {
       void authClient.organization.setActive({ organizationId: orgs[0].id });
     }
   }, [orgId, orgs]);
 
-  // Propagate the active workspace to the agent client and (re)load its data.
   useEffect(() => {
     setActiveOrg(orgId);
     if (orgId) {
@@ -77,40 +76,50 @@ export function AppShell({ userName, userEmail }: { userName: string; userEmail:
     }
   }, [orgId, refreshPeople, refreshImages]);
 
-  const transport = useMemo(
-    () =>
-      new DefaultChatTransport({
-        api: AGENT_URL,
-        fetch: async (input, init) => {
-          const token = await getToken();
-          const headers = new Headers(init?.headers);
-          headers.set('authorization', `Bearer ${token}`);
-          headers.set('x-organization-id', getActiveOrg() ?? '');
-          return fetch(input, { ...init, headers });
-        },
-      }),
-    [],
+  // Fire-and-forget generation: each call is an independent job, so multiple
+  // can run at once without blocking the composer.
+  const runJob = useCallback(
+    async (prompt: string, personIds: string[]) => {
+      if (!agentConfigured()) {
+        toast.error('NEXT_PUBLIC_AGENT_URL is not configured');
+        return;
+      }
+      if (!orgId) {
+        toast.error('Select a workspace first');
+        return;
+      }
+      const id = crypto.randomUUID();
+      setJobs((j) => [...j, { id, prompt, personIds, status: 'running' }]);
+      try {
+        await generate(prompt, personIds);
+        setJobs((j) => j.filter((x) => x.id !== id));
+        await refreshImages();
+      } catch (err) {
+        setJobs((j) =>
+          j.map((x) =>
+            x.id === id
+              ? { ...x, status: 'error', error: err instanceof Error ? err.message : 'Failed' }
+              : x,
+          ),
+        );
+      }
+    },
+    [orgId, refreshImages],
   );
 
-  const { sendMessage, status } = useChat({
-    transport,
-    onError: (err) => toast.error(err.message || 'Generation failed'),
-    onFinish: () => {
-      void refreshImages();
-      setTimeout(() => void refreshImages(), 1500);
-    },
-  });
+  function personIdsFromPrompt(prompt: string): string[] {
+    return people
+      .filter((p) => new RegExp(`@${escapeRegex(p.name)}(?![\\w])`).test(prompt))
+      .map((p) => p.id);
+  }
 
-  async function handleGenerate(text: string, personIds: string[]) {
-    if (!agentConfigured()) {
-      toast.error('NEXT_PUBLIC_AGENT_URL is not configured');
-      return;
-    }
-    if (!orgId) {
-      toast.error('Select a workspace first');
-      return;
-    }
-    await sendMessage({ text }, { body: { personIds } });
+  function handleRetry(job: Job) {
+    setJobs((j) => j.filter((x) => x.id !== job.id));
+    void runJob(job.prompt, job.personIds);
+  }
+
+  function dismissJob(id: string) {
+    setJobs((j) => j.filter((x) => x.id !== id));
   }
 
   async function handleSignOut() {
@@ -120,10 +129,11 @@ export function AppShell({ userName, userEmail }: { userName: string; userEmail:
   }
 
   const initials = (userName || userEmail).slice(0, 2).toUpperCase();
+  const runningCount = jobs.filter((j) => j.status === 'running').length;
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="bg-background/80 sticky top-0 z-10 flex items-center justify-between gap-2 border-b px-4 py-3 backdrop-blur sm:px-6">
+      <header className="bg-background/80 sticky top-0 z-30 flex items-center justify-between gap-2 border-b px-4 py-3 backdrop-blur sm:px-6">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="bg-primary/15 ring-primary/20 flex size-7 items-center justify-center rounded-lg ring-1">
@@ -176,22 +186,38 @@ export function AppShell({ userName, userEmail }: { userName: string; userEmail:
                 <p className="text-muted-foreground mb-4 text-sm">
                   Describe what you want. Tag people with{' '}
                   <span className="text-primary font-medium">@</span> to use their photos as a
-                  starting point.
+                  starting point. Fire off as many as you like — they run in the background.
                 </p>
-                <MentionComposer people={people} status={status} onSubmit={handleGenerate} />
+                <MentionComposer
+                  people={people}
+                  status="ready"
+                  onSubmit={(text, personIds) => {
+                    void runJob(text, personIds);
+                  }}
+                />
               </div>
 
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="font-display text-base font-semibold">Shared gallery</h2>
                 <span className="text-muted-foreground text-xs">
+                  {runningCount > 0 && (
+                    <span className="text-primary mr-2">{runningCount} generating…</span>
+                  )}
                   {images.length} image{images.length === 1 ? '' : 's'}
                 </span>
               </div>
-              <ImageGallery images={images} loading={loadingImages} onChanged={refreshImages} />
+              <ImageGallery
+                images={images}
+                loading={loadingImages}
+                onChanged={refreshImages}
+                onRegenerate={(prompt) => void runJob(prompt, personIdsFromPrompt(prompt))}
+              />
             </div>
           </main>
         </div>
       )}
+
+      <JobsPanel jobs={jobs} onRetry={handleRetry} onDismiss={dismissJob} />
     </div>
   );
 }

@@ -77,6 +77,20 @@ async function request(path: string, init: RequestInit = {}, retry = true): Prom
   return res;
 }
 
+export async function generate(prompt: string, personIds: string[]): Promise<void> {
+  const res = await request('/', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      messages: [{ id: crypto.randomUUID(), role: 'user', parts: [{ type: 'text', text: prompt }] }],
+      personIds,
+    }),
+  });
+  // The function persists the image before it starts streaming, so awaiting the
+  // body to completion guarantees the image is saved.
+  await res.text();
+}
+
 export async function listImages(): Promise<ImageRecord[]> {
   const res = await request('/images');
   return ((await res.json()) as { images: ImageRecord[] }).images;

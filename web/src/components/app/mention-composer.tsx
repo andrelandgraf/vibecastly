@@ -131,7 +131,7 @@ export function MentionComposer({
         </Button>
 
         {showDropdown && (
-          <div className="absolute bottom-full left-0 z-20 mb-2 w-64 overflow-hidden rounded-xl border bg-popover p-1 shadow-lg">
+          <div className="absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-xl border bg-popover p-1 shadow-xl">
             <div className="text-muted-foreground flex items-center gap-1.5 px-2 py-1 text-xs">
               <AtSign className="size-3" /> Reference a person
             </div>

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { MoreVertical, Pencil, Trash2, Download, ImageIcon, Loader2 } from 'lucide-react';
+import { MoreVertical, Pencil, Trash2, Download, ImageIcon, Loader2, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,10 +27,12 @@ export function ImageGallery({
   images,
   loading,
   onChanged,
+  onRegenerate,
 }: {
   images: ImageRecord[];
   loading: boolean;
   onChanged: () => void | Promise<void>;
+  onRegenerate: (prompt: string) => void;
 }) {
   const [renaming, setRenaming] = useState<ImageRecord | null>(null);
   const [deleting, setDeleting] = useState<ImageRecord | null>(null);
@@ -122,6 +124,9 @@ export function ImageGallery({
                     <MoreVertical className="size-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => onRegenerate(img.prompt)}>
+                      <RotateCw className="size-4" /> Regenerate
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => {
                         setRenaming(img);

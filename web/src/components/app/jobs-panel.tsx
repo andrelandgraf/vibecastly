@@ -1,0 +1,82 @@
+'use client';
+
+import { Loader2, RotateCw, X, AlertCircle, Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
+export type Job = {
+  id: string;
+  prompt: string;
+  personIds: string[];
+  status: 'running' | 'error';
+  error?: string;
+};
+
+export function JobsPanel({
+  jobs,
+  onRetry,
+  onDismiss,
+}: {
+  jobs: Job[];
+  onRetry: (job: Job) => void;
+  onDismiss: (id: string) => void;
+}) {
+  if (jobs.length === 0) return null;
+
+  return (
+    <div className="fixed right-4 bottom-4 z-40 flex w-72 flex-col gap-2">
+      {jobs.map((job) => (
+        <div
+          key={job.id}
+          className="bg-card animate-in slide-in-from-bottom-2 flex items-start gap-2.5 rounded-xl border p-3 shadow-lg"
+        >
+          <div className="mt-0.5">
+            {job.status === 'running' ? (
+              <Loader2 className="text-primary size-4 animate-spin" />
+            ) : (
+              <AlertCircle className="text-destructive size-4" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-1 text-xs font-medium">
+              {job.status === 'running' ? (
+                <>
+                  <Sparkles className="size-3 text-primary" /> Generating…
+                </>
+              ) : (
+                'Generation failed'
+              )}
+            </p>
+            <p className="text-muted-foreground line-clamp-2 text-xs" title={job.prompt}>
+              {job.prompt}
+            </p>
+            {job.status === 'error' && job.error && (
+              <p className="text-destructive/80 mt-0.5 line-clamp-2 text-[11px]">{job.error}</p>
+            )}
+          </div>
+          {job.status === 'error' && (
+            <div className="flex shrink-0 gap-0.5">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-6"
+                onClick={() => onRetry(job)}
+                aria-label="Retry"
+              >
+                <RotateCw className="size-3.5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-6"
+                onClick={() => onDismiss(job.id)}
+                aria-label="Dismiss"
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
