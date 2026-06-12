@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Sparkles, LogOut, Building2 } from 'lucide-react';
+import { Sparkles, LogOut } from 'lucide-react';
 import { authClient } from '@/lib/auth/client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -24,6 +24,7 @@ import { OrgSwitcher } from './org-switcher';
 import { InvitationsMenu } from './invitations-menu';
 import { TeamDialog } from './team-dialog';
 import { JobsPanel, type Job } from './jobs-panel';
+import { Onboarding } from './onboarding';
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -164,18 +165,7 @@ export function AppShell({ userName, userEmail }: { userName: string; userEmail:
       </header>
 
       {!orgId ? (
-        <main className="flex flex-1 items-center justify-center p-6">
-          <div className="max-w-sm text-center">
-            <div className="bg-primary/10 mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl">
-              <Building2 className="size-6 text-primary" />
-            </div>
-            <h1 className="font-display text-xl font-semibold">Create a workspace</h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              Workspaces let you and your teammates share a gallery and a cast of people. Use the
-              workspace menu in the top-left to create your first one.
-            </p>
-          </div>
-        </main>
+        <Onboarding userName={userName} />
       ) : (
         <div className="flex flex-1 flex-col lg:flex-row">
           <PeopleSidebar people={people} onChanged={refreshPeople} />
