@@ -1,3 +1,0 @@
-minimumReleaseAgeExclude:
-  - '@neondatabase/config@0.4.0'
-  - '@neondatabase/env@0.3.0'
