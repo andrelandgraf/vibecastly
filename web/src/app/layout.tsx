@@ -22,11 +22,11 @@ import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://neon-image-studio.vercel.app"),
-  title: "Neon Image Studio — cast anyone into any scene",
+  title: "Vibecast — cast anyone into any scene",
   description:
     "Upload photos of people, @-mention them in a prompt, and generate AI images that use their faces as a starting point. Shared team workspaces, built on Neon.",
   openGraph: {
-    title: "Neon Image Studio",
+    title: "Vibecast",
     description:
       "Cast anyone into any scene. Upload people, @-mention them, and generate together.",
     type: "website",
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Neon Image Studio",
+    title: "Vibecast",
     description: "Cast anyone into any scene — AI image studio for teams, built on Neon.",
   },
 };

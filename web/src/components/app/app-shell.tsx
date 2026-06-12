@@ -142,7 +142,7 @@ export function AppShell({ userName, userEmail }: { userName: string; userEmail:
               <Sparkles className="size-4 text-primary" />
             </div>
             <span className="font-display hidden text-[15px] font-semibold sm:inline">
-              Neon Image Studio
+              Vibecast
             </span>
           </div>
           <div className="bg-border h-5 w-px" />

@@ -58,7 +58,7 @@ export default function LoginPage() {
           <div className="bg-primary/15 ring-primary/20 flex size-7 items-center justify-center rounded-lg ring-1">
             <Sparkles className="size-4 text-primary" />
           </div>
-          <span className="font-display text-[15px] font-semibold">Neon Image Studio</span>
+          <span className="font-display text-[15px] font-semibold">Vibecast</span>
         </Link>
 
         <div className="relative">
@@ -105,7 +105,7 @@ export default function LoginPage() {
             <div className="bg-primary/15 ring-primary/20 flex size-7 items-center justify-center rounded-lg ring-1">
               <Sparkles className="size-4 text-primary" />
             </div>
-            <span className="font-display text-[15px] font-semibold">Neon Image Studio</span>
+            <span className="font-display text-[15px] font-semibold">Vibecast</span>
           </Link>
 
           <h1 className="font-display text-2xl font-semibold">

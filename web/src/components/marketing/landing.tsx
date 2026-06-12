@@ -121,7 +121,7 @@ export function Landing() {
           <div className="bg-primary/15 ring-primary/20 flex size-7 items-center justify-center rounded-lg ring-1">
             <Sparkles className="size-4 text-primary" />
           </div>
-          <span className="font-display text-[15px] font-semibold">Neon Image Studio</span>
+          <span className="font-display text-[15px] font-semibold">Vibecast</span>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" render={<Link href="/login" />}>
@@ -244,7 +244,7 @@ export function Landing() {
         <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-2 text-xs sm:flex-row">
           <div className="flex items-center gap-2">
             <Sparkles className="size-4 text-primary" />
-            <span className="font-display font-semibold">Neon Image Studio</span>
+            <span className="font-display font-semibold">Vibecast</span>
           </div>
           <p className="text-muted-foreground">
             Built on the Neon backend platform — Auth · Functions · Storage · AI Gateway · Postgres.

@@ -1,4 +1,4 @@
-# Castmate
+# Vibecast
 
 An AI image studio where you **cast people into AI-generated scenes**. Upload photos of people, `@`-tag them in a prompt, and the model uses their photos as starting points. Work solo or invite teammates into a **shared workspace** with a collaborative gallery.
 

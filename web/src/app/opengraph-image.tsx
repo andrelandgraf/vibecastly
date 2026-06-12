@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og';
 
-export const alt = 'Neon Image Studio — cast anyone into any scene';
+export const alt = 'Vibecast — cast anyone into any scene';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -35,9 +35,9 @@ export default function OpengraphImage() {
               fontWeight: 800,
             }}
           >
-            N
+            V
           </div>
-          <div style={{ fontSize: 28, fontWeight: 600 }}>Neon Image Studio</div>
+          <div style={{ fontSize: 28, fontWeight: 600 }}>Vibecast</div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
