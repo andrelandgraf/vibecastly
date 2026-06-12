@@ -13,28 +13,58 @@ import { Button } from '@/components/ui/button';
 
 const showcase = ['/showcase/1.jpg', '/showcase/2.jpg', '/showcase/3.jpg', '/showcase/4.jpg'];
 
-function HeroCollage() {
-  const cards = [
-    { src: showcase[0], className: 'left-0 top-6 rotate-[-8deg]', delay: '0s', label: '@Rex in space' },
-    { src: showcase[1], className: 'right-2 top-0 rotate-[6deg]', delay: '1.2s' },
-    { src: showcase[2], className: 'left-10 bottom-0 rotate-[5deg]', delay: '0.6s' },
-    { src: showcase[3], className: 'right-8 bottom-10 rotate-[-5deg]', delay: '1.8s' },
-  ];
+function PersonChip({ src, name }: { src: string; name: string }) {
   return (
-    <div className="relative mx-auto hidden h-[420px] w-full max-w-md lg:block">
-      <div className="bg-primary/20 animate-pulse-glow absolute inset-10 rounded-full blur-3xl" />
-      {cards.map((c, i) => (
-        <div
-          key={i}
-          style={{ animationDelay: c.delay }}
-          className={`animate-float absolute aspect-square w-44 overflow-hidden rounded-2xl border shadow-2xl ${c.className}`}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={c.src} alt="AI generated" className="size-full object-cover" />
+    <span className="bg-background/70 inline-flex items-center gap-1.5 rounded-full border py-1 pr-2.5 pl-1 text-xs font-medium">
+      <span className="size-6 overflow-hidden rounded-full border">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={name} className="size-full object-cover" />
+      </span>
+      <span className="text-primary">@{name}</span>
+    </span>
+  );
+}
+
+function HeroCollage() {
+  return (
+    <div className="relative mx-auto hidden w-full max-w-md lg:block">
+      <div className="bg-primary/20 animate-pulse-glow absolute -inset-6 rounded-full blur-3xl" />
+
+      {/* decorative floating output behind the card */}
+      <div className="animate-float absolute -top-10 -right-6 aspect-square w-24 rotate-6 overflow-hidden rounded-2xl border shadow-xl">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={showcase[0]} alt="" className="size-full object-cover" />
+      </div>
+
+      {/* product preview card: cast -> prompt -> result */}
+      <div className="bg-card/90 animate-float-slow relative rounded-3xl border p-4 shadow-2xl backdrop-blur">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-muted-foreground text-xs">Your cast</span>
+          <PersonChip src="/showcase/face-a.jpg" name="Mia" />
+          <PersonChip src="/showcase/face-b.jpg" name="Rex" />
         </div>
-      ))}
-      <div className="bg-card animate-float-slow absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-xl">
-        <AtSign className="size-3.5 text-primary" /> @Rex &amp; @Mia dancing
+
+        <div className="bg-background/60 mb-3 flex items-center gap-2 rounded-xl border px-3 py-2.5">
+          <span className="flex-1 text-sm">
+            <span className="text-primary">@Mia</span> and <span className="text-primary">@Rex</span>{' '}
+            on a tropical beach
+          </span>
+          <span className="bg-primary text-primary-foreground flex size-7 items-center justify-center rounded-full">
+            <Wand2 className="size-3.5" />
+          </span>
+        </div>
+
+        <div className="relative overflow-hidden rounded-2xl border">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/showcase/scene.jpg"
+            alt="Generated scene featuring the cast"
+            className="aspect-[4/3] w-full object-cover"
+          />
+          <span className="bg-background/80 absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium backdrop-blur">
+            <Sparkles className="size-3 text-primary" /> Generated
+          </span>
+        </div>
       </div>
     </div>
   );
