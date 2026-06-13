@@ -23,7 +23,7 @@ export function JobsPanel({
   if (jobs.length === 0) return null;
 
   return (
-    <div className="fixed right-4 bottom-4 z-40 flex w-72 flex-col gap-2">
+    <div className="fixed right-4 bottom-4 left-4 z-40 flex flex-col gap-2 sm:left-auto sm:w-72">
       {jobs.map((job) => (
         <div
           key={job.id}

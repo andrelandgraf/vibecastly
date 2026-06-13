@@ -10,5 +10,5 @@ export default async function Home() {
     return <Landing />;
   }
 
-  return <AppShell userName={user.name} userEmail={user.email} />;
+  return <AppShell userName={user.name} userEmail={user.email} userImage={user.image} />;
 }

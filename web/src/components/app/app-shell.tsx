@@ -1,12 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Sparkles, LogOut } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { authClient } from '@/lib/auth/client';
-import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   generate,
   agentConfigured,
@@ -25,13 +22,21 @@ import { InvitationsMenu } from './invitations-menu';
 import { TeamDialog } from './team-dialog';
 import { JobsPanel, type Job } from './jobs-panel';
 import { Onboarding } from './onboarding';
+import { AccountMenu } from './account-menu';
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function AppShell({ userName, userEmail }: { userName: string; userEmail: string }) {
-  const router = useRouter();
+export function AppShell({
+  userName,
+  userEmail,
+  userImage,
+}: {
+  userName: string;
+  userEmail: string;
+  userImage?: string | null;
+}) {
   const { data: orgs } = authClient.useListOrganizations();
   const { data: activeOrg } = authClient.useActiveOrganization();
   const orgId = activeOrg?.id ?? null;
@@ -124,13 +129,6 @@ export function AppShell({ userName, userEmail }: { userName: string; userEmail:
     setJobs((j) => j.filter((x) => x.id !== id));
   }
 
-  async function handleSignOut() {
-    await authClient.signOut();
-    router.push('/login');
-    router.refresh();
-  }
-
-  const initials = (userName || userEmail).slice(0, 2).toUpperCase();
   const runningCount = jobs.filter((j) => j.status === 'running').length;
 
   return (
@@ -148,19 +146,14 @@ export function AppShell({ userName, userEmail }: { userName: string; userEmail:
           <div className="bg-border h-5 w-px" />
           <OrgSwitcher />
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-1.5">
           {orgId && <TeamDialog />}
           <InvitationsMenu onAccepted={refreshImages} />
-          <div className="hidden text-right sm:block">
-            <p className="text-sm font-medium leading-none">{userName}</p>
-            <p className="text-muted-foreground text-xs">{userEmail}</p>
-          </div>
-          <Avatar className="size-8">
-            <AvatarFallback>{initials}</AvatarFallback>
-          </Avatar>
-          <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out">
-            <LogOut className="size-4" />
-          </Button>
+          <AccountMenu
+            initialName={userName}
+            initialEmail={userEmail}
+            initialImage={userImage}
+          />
         </div>
       </header>
 

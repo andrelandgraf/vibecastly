@@ -91,7 +91,7 @@ export function PeopleSidebar({
         </Button>
       </div>
 
-      <div className="flex-1 space-y-1 overflow-y-auto px-2 pb-3">
+      <div className="max-h-[35vh] flex-1 space-y-1 overflow-y-auto px-2 pb-3 lg:max-h-none">
         {people.length === 0 ? (
           <p className="text-muted-foreground px-2 py-6 text-center text-xs">
             Add people, then tag them with <span className="text-foreground">@</span> in a prompt to

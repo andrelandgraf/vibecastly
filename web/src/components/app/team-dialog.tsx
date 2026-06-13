@@ -91,8 +91,10 @@ export function TeamDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size="sm" className="gap-1.5" />}>
-        <Users className="size-4" /> Team
+      <DialogTrigger
+        render={<Button variant="outline" size="sm" className="gap-1.5" aria-label="Team" />}
+      >
+        <Users className="size-4" /> <span className="hidden sm:inline">Team</span>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -102,7 +104,7 @@ export function TeamDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-end gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
           <div className="flex-1 space-y-1.5">
             <Label htmlFor="invite-email">Invite by email</Label>
             <Input
@@ -114,18 +116,25 @@ export function TeamDialog() {
               onKeyDown={(e) => e.key === 'Enter' && invite()}
             />
           </div>
-          <Select value={role} onValueChange={setRole}>
-            <SelectTrigger className="w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="member">Member</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button onClick={invite} disabled={busy || !email.trim()} size="icon" aria-label="Invite">
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
-          </Button>
+          <div className="flex gap-2">
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger className="w-full sm:w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="member">Member</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              onClick={invite}
+              disabled={busy || !email.trim()}
+              size="icon"
+              aria-label="Invite"
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+            </Button>
+          </div>
         </div>
 
         {invites.length > 0 && (
