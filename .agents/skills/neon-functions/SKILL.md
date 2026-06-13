@@ -129,6 +129,40 @@ functions: {
 
 Load a `.env` before deploy with `neonctl deploy --env .env.production`. Pull the branch's Neon-managed vars onto disk for local dev with `neonctl env pull` (`link`/`checkout` do this automatically; pass `--no-env-pull` to skip and use `neon-env run -- <cmd>` for runtime injection). Limits: ≤1,000 vars, ≤64 KiB total, and the `NEON_` prefix is reserved.
 
+## Connecting to Postgres
+
+When the branch has Postgres, Neon **injects the connection strings at runtime** — you don't declare them, pass them at deploy time, or hardcode anything. The two you'll use:
+
+- `DATABASE_URL` — **pooled** connection string (routed through Neon's connection pooler). Use it for normal request/response query traffic. Kept un-prefixed because every Postgres ORM (Drizzle, Prisma, Knex, …) reads `DATABASE_URL` by default.
+- `DATABASE_URL_UNPOOLED` — **direct** connection string to the same database. Use it for migrations, `LISTEN`/`NOTIFY`, and long multi-statement transactions.
+
+Create the connection pool **once at module scope** and reuse it across requests — don't open a connection per request:
+
+```typescript
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+
+// Created once per isolate; reused by every request that isolate handles.
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+const db = drizzle(pool);
+```
+
+**Pooling is recommended because an isolate is reused across many requests** (and several requests can be in flight on the same isolate at once — see [Timeouts and runtime limits](#timeouts-and-runtime-limits)). A module-scope pool is opened once on cold start and then shared by every subsequent request that isolate serves, so you amortize connection setup instead of paying it on every request and you avoid exhausting Postgres connections under load.
+
+Keep `max` small (e.g. `5`): each isolate keeps its own pool, so total connections to Postgres scale with the number of live isolates. Drain the pool when the runtime evicts the isolate so connections close cleanly:
+
+```typescript
+process.on("SIGINT", () => {
+  pool.end().then(() => process.exit(0));
+});
+```
+
+> Reading `process.env.DATABASE_URL` directly works everywhere. The `with-hono` example in [Setup](#setup) instead uses `@neondatabase/env/v1`'s `parseEnv(config)` to read the same value in a typed, validated way — either is fine.
+
+## Integrations and observability
+
+A function is a long-lived Node.js process running a web-standard request/response handler, so standard Node integration SDKs work unchanged — initialize them once at module load, gated on an env var so local dev and unconfigured branches stay a no-op, and pass secrets via `--env` or `neon.ts` `env`. For wiring up **Sentry** error monitoring across the HTTP framework, the function runtime, and an agent's own caught/fallback failures (the long-running case Functions target), see [references/integrations.md](references/integrations.md). For running a **Mastra** agent on a function and shipping its traces to a **Mastra Studio (Mastra Cloud)** project for observability, see [references/mastra-studio.md](references/mastra-studio.md).
+
 ## Timeouts and runtime limits
 
 Functions are long-running but **still serverless** — they are a request/response runtime, not a background job runner. The hard limits:
@@ -144,7 +178,55 @@ process.on("SIGINT", () => {
 });
 ```
 
-- **Runtime:** Node.js 24, one request at a time per isolate (extra requests queue, they don't fail), memory fixed at 2048 MiB during the preview. Slugs must match `^[a-z0-9]{1,20}$`. State held in module scope is per-isolate and in-memory only — persist anything that must survive eviction in Postgres.
+- **Runtime:** Node.js 24, memory fixed at 2048 MiB during the preview. Slugs must match `^[a-z0-9]{1,20}$`. **An isolate is reused across many requests** — multiple requests can be in flight on the same isolate at once (interleaved on Node's single-threaded event loop), and under load the runtime runs several isolates in parallel, each with its own copy of module state. State held in module scope is therefore per-isolate (shared by every request that isolate handles) and in-memory only — persist anything that must survive eviction in Postgres. This reuse is exactly why you create a connection pool once at module scope rather than per request (see [Connecting to Postgres](#connecting-to-postgres)).
+
+## Functions as an agent backend (Next.js and similar frameworks)
+
+A Neon Function is a great home for an AI agent precisely because it **doesn't time out** the way lambda-style serverless does (15-minute budget, see above). But that advantage disappears the moment you **proxy the agent stream through your web app's backend** — a Next.js route handler, Remix/SvelteKit/Nuxt action, etc. hosted on Vercel, Netlify, Cloudflare, and the like. Those platforms cap serverless/edge execution at short windows (often ~10–60s, sometimes up to ~300s), so a long agent or image/video generation stream gets cut off mid-response even though the Neon Function would happily keep going.
+
+**The fix: call the function directly from the client.** Don't route the long request through your app server.
+
+```
+Browser ──(Authorization: Bearer <JWT>)──▶  Neon Function (agent)   ✅ no host timeout
+Browser ──▶ your app backend ──▶ Neon Function                       ❌ host cuts the stream
+```
+
+- Mint a **short-lived JWT** on your app backend (e.g. better-auth's `jwt` plugin, NextAuth, or your own signer) — that call is fast and well within host limits.
+- Hand the token to the client and have it call the Neon Function **directly** (cross-origin), e.g. with the Vercel AI SDK: `new DefaultChatTransport({ api: NEON_FUNCTION_URL, fetch })` where `fetch` attaches `Authorization: Bearer <token>`. Your app server is never in the path of the long stream.
+- Add **CORS** so the browser can reach it (handle `OPTIONS`, set `Access-Control-Allow-Origin`/`-Headers`).
+
+> [!WARNING]
+> A Neon Function has a **public HTTPS URL — it is reachable by anyone.** A direct client→function call means there is no app backend in front of it to gate access, so **you must authenticate the function yourself.** Verify a JWT (e.g. against your app's JWKS), check a shared secret / API key, or validate a session token at the top of the handler and reject anything else. Never deploy an unauthenticated agent.
+
+```typescript
+// src/index.ts — verify the caller before doing any work
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+const jwks = createRemoteJWKSet(new URL(`${process.env.AUTH_BASE_URL}/api/auth/jwks`));
+
+export default {
+  async fetch(request: Request) {
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request) });
+
+    const auth = request.headers.get("authorization");
+    if (!auth?.toLowerCase().startsWith("bearer ")) {
+      return new Response("Unauthorized", { status: 401, headers: cors(request) });
+    }
+    try {
+      const { payload } = await jwtVerify(auth.slice(7), jwks, {
+        issuer: process.env.AUTH_BASE_URL,
+        audience: process.env.AUTH_BASE_URL,
+      });
+      const userId = payload.sub; // scope the agent to this user
+      // ... run the agent, return result.toUIMessageStreamResponse({ headers: cors(request) })
+    } catch {
+      return new Response("Unauthorized", { status: 401, headers: cors(request) });
+    }
+  },
+};
+```
+
+Pass the JWKS/issuer URL to the function via its `env` (see Environment variables). Persist anything you need to keep (generated images, history) in Postgres — module state doesn't survive eviction.
 
 ## Availability
 

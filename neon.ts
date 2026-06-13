@@ -14,6 +14,14 @@ export default defineConfig({
       imagegen: {
         name: 'AI SDK image agent',
         source: 'src/index.ts',
+        // Third-party env injected at `neonctl deploy --env .env.deploy` time.
+        // All gate to no-ops when unset (local dev / regen): Sentry error
+        // monitoring + Mastra Studio observability for the agent.
+        env: {
+          SENTRY_DSN: process.env.SENTRY_DSN ?? '',
+          MASTRA_PROJECT_ID: process.env.MASTRA_PROJECT_ID ?? '',
+          MASTRA_PLATFORM_ACCESS_TOKEN: process.env.MASTRA_PLATFORM_ACCESS_TOKEN ?? '',
+        },
         dev: {
           port: 8787,
         },

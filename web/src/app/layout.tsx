@@ -18,6 +18,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
@@ -52,6 +53,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-background text-foreground">
         {children}
         <Toaster position="top-center" richColors />
+        <Analytics />
       </body>
     </html>
   );

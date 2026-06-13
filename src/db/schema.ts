@@ -17,6 +17,16 @@ export const people = pgTable(
   (table) => [index('people_org_idx').on(table.organizationId)],
 );
 
+// Per-user agent memory: a persistent, resource-scoped profile of how each
+// creator likes their AI images. Kept in our own Postgres (not @mastra/memory)
+// because that package + @mastra/pg add ~6MB to the function bundle and blow the
+// Neon Functions deploy size cap. Same feature, far smaller footprint.
+export const creatorProfiles = pgTable('creator_profiles', {
+  userId: text('user_id').primaryKey(),
+  profile: text('profile').notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
 export const images = pgTable(
   'images',
   {

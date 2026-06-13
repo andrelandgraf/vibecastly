@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   // The vendored AI Elements components ship with type/lint drift against the
@@ -24,4 +25,18 @@ const nextConfig: NextConfig = {
   ],
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  // Org/project slugs and an auth token enable source-map upload on `next build`.
+  // Set SENTRY_ORG, SENTRY_PROJECT, and SENTRY_AUTH_TOKEN (e.g. in
+  // .env.sentry-build-plugin / CI) to get readable production stack traces.
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  widenClientFileUpload: true,
+
+  // Proxy Sentry requests through the app to bypass ad-blockers.
+  tunnelRoute: "/monitoring",
+
+  silent: !process.env.CI,
+});

@@ -1,6 +1,5 @@
-import { openai } from '@ai-sdk/openai';
+import { Sentry } from './instrument';
 import {
-  generateText,
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -13,9 +12,9 @@ import { db } from './lib/db';
 import { authenticate, corsHeaders } from './lib/auth';
 import { isMember } from './lib/org';
 import { putObject, deleteObject, getObjectBase64, presignGet } from './lib/storage';
+import { runImageAgent } from './lib/mastra';
 import { people, images } from './db/schema';
 
-const MODEL = 'databricks-gpt-5-mini';
 const PEOPLE_BUCKET = 'people';
 const GENERATED_BUCKET = 'generated';
 const MAX_IMAGES_PER_ORG = 10;
@@ -68,6 +67,11 @@ export default {
       return json(request, 404, { error: 'Not found' });
     } catch (error) {
       console.error(`[${method} ${path}] error:`, error);
+      Sentry.captureException(error, {
+        tags: { component: 'http', route: `${method} ${path}` },
+        user: { id: ctx.userId },
+        extra: { orgId: ctx.orgId },
+      });
       return json(request, 500, {
         error: error instanceof Error ? error.message : 'Internal error',
       });
@@ -101,27 +105,17 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
   let generated: { base64: string; mediaType: string } | null = null;
   let text = '';
   try {
-    const gen = await generateText({
-      model: openai(MODEL),
-      system:
-        'You are an illustration agent. When the user asks for a picture, use the ' +
-        'image_generation tool to create it. If reference images of people are provided, ' +
-        'use them as the starting point so the generated people resemble those references. ' +
-        'Then briefly describe what you drew.',
-      messages: modelMessages,
-      tools: {
-        image_generation: openai.tools.imageGeneration({
-          outputFormat: 'jpeg',
-          quality: 'low',
-          outputCompression: 30,
-          size: '1024x1024',
-        }),
-      },
-    });
-    generated = extractGeneratedImage(gen);
-    text = gen.text.trim();
+    const result = await runImageAgent(modelMessages, ctx.userId, prompt);
+    generated = result.image;
+    text = result.text;
   } catch (error) {
     console.error('[generate] failed:', error);
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { component: 'agent', phase: 'generate' },
+      user: { id: ctx.userId },
+      extra: { orgId: ctx.orgId, prompt },
+    });
     return json(request, 502, {
       error: 'generation_failed',
       message: error instanceof Error ? error.message : String(error),
@@ -228,9 +222,14 @@ async function deletePerson(request: Request, ctx: Ctx, id: string): Promise<Res
     .where(and(eq(people.id, id), eq(people.organizationId, ctx.orgId)))
     .limit(1);
   if (!row) return json(request, 404, { error: 'Not found' });
-  await deleteObject(PEOPLE_BUCKET, row.bucketKey).catch((e) =>
-    console.error('[people] delete object failed:', e),
-  );
+  await deleteObject(PEOPLE_BUCKET, row.bucketKey).catch((e) => {
+    console.error('[people] delete object failed:', e);
+    Sentry.captureException(e, {
+      level: 'warning',
+      tags: { component: 'storage', phase: 'delete', bucket: PEOPLE_BUCKET },
+      extra: { orgId: ctx.orgId, bucketKey: row.bucketKey },
+    });
+  });
   await db.delete(people).where(and(eq(people.id, id), eq(people.organizationId, ctx.orgId)));
   return json(request, 200, { deleted: id });
 }
@@ -276,9 +275,14 @@ async function deleteImage(request: Request, ctx: Ctx, id: string): Promise<Resp
     .where(and(eq(images.id, id), eq(images.organizationId, ctx.orgId)))
     .limit(1);
   if (!row) return json(request, 404, { error: 'Not found' });
-  await deleteObject(GENERATED_BUCKET, row.bucketKey).catch((e) =>
-    console.error('[images] delete object failed:', e),
-  );
+  await deleteObject(GENERATED_BUCKET, row.bucketKey).catch((e) => {
+    console.error('[images] delete object failed:', e);
+    Sentry.captureException(e, {
+      level: 'warning',
+      tags: { component: 'storage', phase: 'delete', bucket: GENERATED_BUCKET },
+      extra: { orgId: ctx.orgId, bucketKey: row.bucketKey },
+    });
+  });
   await db.delete(images).where(and(eq(images.id, id), eq(images.organizationId, ctx.orgId)));
   return json(request, 200, { deleted: id });
 }
@@ -303,6 +307,11 @@ async function loadReferenceImages(
       });
     } catch (error) {
       console.error(`[reference] failed to load person ${row.id}:`, error);
+      Sentry.captureException(error, {
+        level: 'warning',
+        tags: { component: 'agent', phase: 'reference' },
+        extra: { orgId, personId: row.id, bucketKey: row.bucketKey },
+      });
     }
   }
   return parts;
@@ -326,32 +335,6 @@ function withReferenceImages(
   }
   result.push({ role: 'user', content: imageParts });
   return result;
-}
-
-function extractGeneratedImage(gen: {
-  files: Array<{ base64: string; mediaType: string }>;
-  toolResults: Array<{ toolName: string; output?: unknown }>;
-}): { base64: string; mediaType: string } | null {
-  for (const file of gen.files) {
-    if (file.mediaType.startsWith('image/')) {
-      return { base64: file.base64, mediaType: file.mediaType };
-    }
-  }
-  for (const toolResult of gen.toolResults) {
-    if (toolResult.toolName !== 'image_generation') continue;
-    const base64 = imageResultBase64(toolResult.output);
-    if (base64) return { base64, mediaType: 'image/jpeg' };
-  }
-  return null;
-}
-
-function imageResultBase64(output: unknown): string | null {
-  if (typeof output === 'string') return output;
-  if (typeof output === 'object' && output !== null && 'result' in output) {
-    const { result } = output;
-    if (typeof result === 'string') return result;
-  }
-  return null;
 }
 
 function lastUserText(messages: UIMessage[]): string {
