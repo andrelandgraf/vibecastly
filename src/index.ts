@@ -12,7 +12,7 @@ import { db } from './lib/db';
 import { authenticate, corsHeaders } from './lib/auth';
 import { isMember } from './lib/org';
 import { putObject, deleteObject, getObjectBase64, presignGet } from './lib/storage';
-import { runImageAgent } from './lib/mastra';
+import { runImageAgent, moderatePrompt, type ModerationResult } from './lib/mastra';
 import { people, images } from './db/schema';
 
 const PEOPLE_BUCKET = 'people';
@@ -98,6 +98,26 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
   }
 
   const prompt = lastUserText(messages);
+
+  // Gatekeeper: a strong moderation agent vets the prompt before we spend any
+  // work generating. Blocks sexual, harassment/bullying, hateful, violent, and
+  // other unsafe requests.
+  const moderation = await moderatePrompt(prompt, (personIds?.length ?? 0) > 0);
+  if (!moderation.allowed) {
+    console.warn(
+      `[moderation] blocked org=${ctx.orgId} user=${ctx.userId} category=${moderation.category}: ${prompt.slice(0, 200)}`,
+    );
+    Sentry.captureMessage('Prompt blocked by moderation', {
+      level: 'warning',
+      tags: { component: 'moderation', category: moderation.category },
+      user: { id: ctx.userId },
+      extra: { orgId: ctx.orgId, reason: moderation.reason },
+    });
+    return json(request, 422, {
+      error: 'prompt_blocked',
+      message: blockedMessage(moderation),
+    });
+  }
 
   const referenceParts = await loadReferenceImages(ctx.orgId, personIds ?? []);
   const modelMessages = withReferenceImages(convertToModelMessages(messages), referenceParts);
@@ -335,6 +355,21 @@ function withReferenceImages(
   }
   result.push({ role: 'user', content: imageParts });
   return result;
+}
+
+function blockedMessage(moderation: ModerationResult): string {
+  const labels: Record<ModerationResult['category'], string> = {
+    sexual: 'sexual or NSFW content',
+    minors: 'content sexualizing minors',
+    harassment: 'harassment or bullying',
+    hate: 'hateful or offensive content',
+    violence: 'graphic violence',
+    self_harm: 'self-harm content',
+    illegal: 'prohibited content',
+    none: 'our content policy',
+  };
+  const label = labels[moderation.category] ?? 'our content policy';
+  return `This prompt was blocked for ${label}. Please edit your prompt and try again.`;
 }
 
 function lastUserText(messages: UIMessage[]): string {

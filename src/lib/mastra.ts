@@ -1,13 +1,26 @@
 import { Mastra } from '@mastra/core/mastra';
 import { Agent } from '@mastra/core/agent';
 import { Observability, MastraPlatformExporter } from '@mastra/observability';
-import { openai } from '@ai-sdk/openai';
+import { openai, createOpenAI } from '@ai-sdk/openai';
 import { eq } from 'drizzle-orm';
 import type { ModelMessage } from 'ai';
+import { Sentry } from '../instrument';
 import { db } from './db';
 import { creatorProfiles } from '../db/schema';
 
 export const MODEL = 'databricks-gpt-5-mini';
+
+// Strong gatekeeper model. Claude (and other non-OpenAI catalog models) are
+// served on the gateway's chat-completions (MLflow) route, not the OpenAI
+// Responses route the image agent uses — so the moderation agent gets its own
+// provider pointed at that route. The OPENAI_* env vars are injected by Neon
+// when the AI Gateway is enabled (Responses base URL ending in /openai/v1).
+export const MODERATION_MODEL = 'claude-sonnet-4-6';
+const gatewayChatBaseUrl = (process.env.OPENAI_BASE_URL ?? '').replace(
+  '/openai/v1',
+  '/mlflow/v1',
+);
+const gatewayChat = createOpenAI({ baseURL: gatewayChatBaseUrl });
 
 const PROFILE_TEMPLATE = `# Creator Profile
 - **Preferred subjects**:
@@ -58,6 +71,33 @@ export const profileAgent = new Agent({
   model: openai(MODEL),
 });
 
+// Gatekeeper that runs BEFORE image generation and blocks unsafe prompts. Uses a
+// strong frontier model on the gateway's chat-completions route. Tool-less (like
+// the profile agent) and registered on the `mastra` instance below so its runs
+// are traced by the same Mastra observability exporter as the other agents.
+export const moderationAgent = new Agent({
+  name: 'moderation',
+  instructions:
+    'You are a strict content-safety gatekeeper for an AI image generator. Users ' +
+    'can attach photos of real, identifiable people and reference them in prompts, ' +
+    'so harassment or sexualization of real people is especially serious. Decide ' +
+    'whether the prompt is safe to turn into an image. Set allowed=false if the ' +
+    'prompt requests, depicts, or implies any of: sexual or NSFW content, nudity, ' +
+    'or sexualization of anyone; ANY sexual or suggestive content involving minors ' +
+    '(always block); harassment or bullying — demeaning, humiliating, or mocking a ' +
+    'real person, or making them look ugly, fat, stupid, or in embarrassing or ' +
+    'compromising situations; hateful content, slurs, or extremist/hate symbols ' +
+    'toward protected groups; graphic violence, gore, or threats toward real ' +
+    'people; self-harm or suicide encouragement; or other clearly illegal content. ' +
+    'Allow ordinary creative, artistic, fictional, and benign prompts — do not ' +
+    'over-block. Respond with ONLY a compact JSON object, no markdown and no prose, ' +
+    'of the exact shape {"allowed": boolean, "category": one of "sexual" | ' +
+    '"minors" | "harassment" | "hate" | "violence" | "self_harm" | "illegal" | ' +
+    '"none", "reason": string}. Use "none" when allowed is true. Keep reason under ' +
+    '20 words.',
+  model: gatewayChat.chat(MODERATION_MODEL),
+});
+
 // Export agent runs (model + tool calls, latency, tokens) to the Mastra platform.
 // Only attached when credentials are present (Observability rejects an empty
 // exporter list); injected onto the deployed function via neon.ts `env`.
@@ -77,7 +117,7 @@ const observability = platformEnabled
   : undefined;
 
 export const mastra = new Mastra({
-  agents: { imagegen: imageAgent, profile: profileAgent },
+  agents: { imagegen: imageAgent, profile: profileAgent, moderation: moderationAgent },
   ...(observability ? { observability } : {}),
 });
 
@@ -92,6 +132,106 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+export type ModerationCategory =
+  | 'sexual'
+  | 'minors'
+  | 'harassment'
+  | 'hate'
+  | 'violence'
+  | 'self_harm'
+  | 'illegal'
+  | 'none';
+
+export type ModerationResult = {
+  allowed: boolean;
+  category: ModerationCategory;
+  reason: string;
+};
+
+const MODERATION_CATEGORIES = new Set<string>([
+  'sexual',
+  'minors',
+  'harassment',
+  'hate',
+  'violence',
+  'self_harm',
+  'illegal',
+  'none',
+]);
+
+function isModerationCategory(value: string): value is ModerationCategory {
+  return MODERATION_CATEGORIES.has(value);
+}
+
+function parseModerationVerdict(raw: string): ModerationResult | null {
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const record = asRecord(parsed);
+  if (!record || typeof record.allowed !== 'boolean') return null;
+  const allowed = record.allowed;
+  const rawCategory = getString(record.category) ?? 'none';
+  const category: ModerationCategory = isModerationCategory(rawCategory)
+    ? rawCategory
+    : allowed
+      ? 'none'
+      : 'illegal';
+  const reason = getString(record.reason)?.trim() || (allowed ? 'allowed' : 'blocked by content policy');
+  return { allowed, category, reason };
+}
+
+// Strong-model gatekeeper run before image generation. Returns whether the prompt
+// is safe; on any classifier error or unparseable output it FAILS OPEN (allows),
+// since the downstream image model has its own safety layer and we don't want a
+// transient classifier outage to block every legitimate request — but we record
+// the failure so it's visible.
+export async function moderatePrompt(
+  promptText: string,
+  hasReferencedPeople: boolean,
+): Promise<ModerationResult> {
+  const text = promptText.trim();
+  if (!text) return { allowed: true, category: 'none', reason: 'empty prompt' };
+  if (!gatewayChatBaseUrl) {
+    return { allowed: true, category: 'none', reason: 'gateway not configured' };
+  }
+
+  const instruction =
+    `Classify this image-generation prompt.` +
+    (hasReferencedPeople
+      ? ' It references uploaded photos of real, identifiable people.'
+      : '') +
+    `\n\nPrompt:\n"""\n${text}\n"""\n\nReturn ONLY the JSON verdict.`;
+
+  try {
+    const result = await mastra.getAgent('moderation').generate(instruction);
+    const raw = (getString(asRecord(result)?.text) ?? '').trim();
+    const verdict = parseModerationVerdict(raw);
+    if (!verdict) {
+      console.warn('[moderation] unparseable verdict:', raw.slice(0, 200));
+      Sentry.captureMessage('Moderation verdict unparseable', {
+        level: 'warning',
+        tags: { component: 'moderation' },
+        extra: { raw: raw.slice(0, 500) },
+      });
+      return { allowed: true, category: 'none', reason: 'classifier returned no verdict' };
+    }
+    return verdict;
+  } catch (error) {
+    console.error('[moderation] classification failed:', error);
+    Sentry.captureException(error, {
+      level: 'warning',
+      tags: { component: 'moderation', phase: 'classify' },
+    });
+    return { allowed: true, category: 'none', reason: 'classifier error' };
+  }
 }
 
 // Mastra surfaces the OpenAI provider image_generation result under
