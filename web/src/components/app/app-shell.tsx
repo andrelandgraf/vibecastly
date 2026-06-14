@@ -11,6 +11,7 @@ import {
   listImages,
   listPeople,
   IMAGE_LIMIT_PER_ORG,
+  AgentError,
   type ImageRecord,
   type PersonRecord,
 } from '@/lib/agent-client';
@@ -122,12 +123,11 @@ export function AppShell({
         setJobs((j) => j.filter((x) => x.id !== id));
         await refreshImages();
       } catch (err) {
+        const kind = err instanceof AgentError ? err.kind : 'failed';
+        const message =
+          err instanceof Error ? err.message : 'Something went wrong. Please try again.';
         setJobs((j) =>
-          j.map((x) =>
-            x.id === id
-              ? { ...x, status: 'error', error: err instanceof Error ? err.message : 'Failed' }
-              : x,
-          ),
+          j.map((x) => (x.id === id ? { ...x, status: 'error', error: message, kind } : x)),
         );
       }
     },

@@ -57,18 +57,42 @@ export async function getToken(force = false): Promise<string> {
   return data.token;
 }
 
+export type AgentErrorKind = 'blocked' | 'rate_limited' | 'failed';
+
+// Carries a user-facing message plus a kind so the UI can present content-policy
+// blocks and rate limits differently from generic failures.
+export class AgentError extends Error {
+  readonly code: string;
+  readonly kind: AgentErrorKind;
+  constructor(message: string, code: string, kind: AgentErrorKind) {
+    super(message);
+    this.name = 'AgentError';
+    this.code = code;
+    this.kind = kind;
+  }
+}
+
 async function request(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
-  if (!AGENT_URL) throw new Error('NEXT_PUBLIC_AGENT_URL is not configured');
-  if (!activeOrgId) throw new Error('No active organization');
+  if (!AGENT_URL) throw new AgentError('The image service is not configured.', 'not_configured', 'failed');
+  if (!activeOrgId) throw new AgentError('Select a workspace first.', 'no_org', 'failed');
   const token = await getToken();
-  const res = await fetch(`${AGENT_URL}${path}`, {
-    ...init,
-    headers: {
-      ...(init.headers ?? {}),
-      authorization: `Bearer ${token}`,
-      'x-organization-id': activeOrgId,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${AGENT_URL}${path}`, {
+      ...init,
+      headers: {
+        ...(init.headers ?? {}),
+        authorization: `Bearer ${token}`,
+        'x-organization-id': activeOrgId,
+      },
+    });
+  } catch {
+    throw new AgentError(
+      "Couldn't reach the image service. Check your connection and try again.",
+      'network',
+      'failed',
+    );
+  }
   if (res.status === 401 && retry) {
     cached = null;
     return request(path, init, false);
@@ -77,7 +101,11 @@ async function request(path: string, init: RequestInit = {}, retry = true): Prom
     const body = (await res.json().catch(() => null)) as
       | { error?: string; message?: string }
       | null;
-    throw new Error(body?.message ?? body?.error ?? `Request failed (${res.status})`);
+    const message = body?.message ?? body?.error ?? `Something went wrong (${res.status}).`;
+    const code = body?.error ?? `http_${res.status}`;
+    const kind: AgentErrorKind =
+      res.status === 422 ? 'blocked' : res.status === 429 ? 'rate_limited' : 'failed';
+    throw new AgentError(message, code, kind);
   }
   return res;
 }
