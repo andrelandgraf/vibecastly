@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-export const alt = 'Vibecast — cast anyone into any scene';
+export const alt = 'Vibecastly — cast anyone into any scene';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -50,7 +50,7 @@ export default function OpengraphImage() {
             >
               V
             </div>
-            <div style={{ fontSize: 28, fontWeight: 600 }}>Vibecast</div>
+            <div style={{ fontSize: 28, fontWeight: 600 }}>Vibecastly</div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', fontSize: 76, fontWeight: 800, lineHeight: 1.04 }}>

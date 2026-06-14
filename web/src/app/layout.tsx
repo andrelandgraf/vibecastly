@@ -22,20 +22,20 @@ import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://vibecast-studio.vercel.app"),
-  title: "Vibecast — cast anyone into any scene",
+  metadataBase: new URL("https://vibecastly.vercel.app"),
+  title: "Vibecastly — cast anyone into any scene",
   description:
     "Upload photos of people, @-mention them in a prompt, and generate AI images that use their faces as a starting point. Shared team workspaces, built on Neon.",
   openGraph: {
-    title: "Vibecast",
+    title: "Vibecastly",
     description:
       "Cast anyone into any scene. Upload people, @-mention them, and generate together.",
     type: "website",
-    url: "https://vibecast-studio.vercel.app",
+    url: "https://vibecastly.vercel.app",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Vibecast",
+    title: "Vibecastly",
     description: "Cast anyone into any scene — AI image studio for teams, built on Neon.",
   },
 };

@@ -148,7 +148,7 @@ export function AppShell({
               <Sparkles className="size-4 text-primary" />
             </div>
             <span className="font-display hidden text-[15px] font-semibold sm:inline">
-              Vibecast
+              Vibecastly
             </span>
           </div>
           <div className="bg-border h-5 w-px" />
