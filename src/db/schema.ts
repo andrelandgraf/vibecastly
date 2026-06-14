@@ -27,6 +27,22 @@ export const creatorProfiles = pgTable('creator_profiles', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
+// One row per accepted image generation, used to rate-limit each user (20 per
+// rolling 24h). Kept separate from `images` so deleting gallery images can't be
+// used to dodge the limit. Refunded (row deleted) if the generation itself fails.
+export const generationEvents = pgTable(
+  'generation_events',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id').notNull(),
+    organizationId: text('organization_id').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [index('generation_events_user_idx').on(table.userId, table.createdAt)],
+);
+
 export const images = pgTable(
   'images',
   {

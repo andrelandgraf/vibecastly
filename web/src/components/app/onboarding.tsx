@@ -83,7 +83,7 @@ export function Onboarding({ userName }: { userName: string }) {
       if (error) {
         toast.error(
           error.code === 'YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS'
-            ? 'You\u2019ve reached the free-plan limit of 4 workspaces.'
+            ? 'You\u2019ve reached the limit of 10 workspaces.'
             : (error.message ?? 'Could not create workspace'),
         );
         return;

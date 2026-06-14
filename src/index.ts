@@ -7,17 +7,19 @@ import {
   type ModelMessage,
 } from 'ai';
 import { randomUUID } from 'node:crypto';
-import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray } from 'drizzle-orm';
 import { db } from './lib/db';
 import { authenticate, corsHeaders } from './lib/auth';
 import { isMember } from './lib/org';
 import { putObject, deleteObject, getObjectBase64, presignGet } from './lib/storage';
 import { runImageAgent, moderatePrompt, type ModerationResult } from './lib/mastra';
-import { people, images } from './db/schema';
+import { people, images, generationEvents } from './db/schema';
 
 const PEOPLE_BUCKET = 'people';
 const GENERATED_BUCKET = 'generated';
 const MAX_IMAGES_PER_ORG = 10;
+const DAILY_GENERATION_LIMIT = 20;
+const GENERATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type Ctx = { userId: string; userName: string; orgId: string };
 type ReferenceImagePart = { type: 'image'; image: Buffer; mediaType: string };
@@ -97,6 +99,27 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
     });
   }
 
+  // Per-user rate limit: at most DAILY_GENERATION_LIMIT generations per rolling
+  // 24h, across all workspaces. Checked before the (paid) moderation call.
+  const windowStart = new Date(Date.now() - GENERATION_WINDOW_MS);
+  const recentEvents = await db
+    .select({ createdAt: generationEvents.createdAt })
+    .from(generationEvents)
+    .where(
+      and(eq(generationEvents.userId, ctx.userId), gt(generationEvents.createdAt, windowStart)),
+    )
+    .orderBy(desc(generationEvents.createdAt))
+    .limit(DAILY_GENERATION_LIMIT);
+  if (recentEvents.length >= DAILY_GENERATION_LIMIT) {
+    const oldest = recentEvents[recentEvents.length - 1].createdAt;
+    const retryMs = Math.max(0, oldest.getTime() + GENERATION_WINDOW_MS - Date.now());
+    return json(request, 429, {
+      error: 'rate_limited',
+      message: `You've reached your limit of ${DAILY_GENERATION_LIMIT} image generations per 24 hours. Try again in ${formatDuration(retryMs)}.`,
+      retryAfterMs: retryMs,
+    });
+  }
+
   const prompt = lastUserText(messages);
 
   // Gatekeeper: a strong moderation agent vets the prompt before we spend any
@@ -119,6 +142,13 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
     });
   }
 
+  // Reserve a rate-limit slot now that the prompt passed moderation. Refunded
+  // below if generation fails, so only real generations count against the limit.
+  const [rateEvent] = await db
+    .insert(generationEvents)
+    .values({ userId: ctx.userId, organizationId: ctx.orgId })
+    .returning({ id: generationEvents.id });
+
   const referenceParts = await loadReferenceImages(ctx.orgId, personIds ?? []);
   const modelMessages = withReferenceImages(convertToModelMessages(messages), referenceParts);
 
@@ -129,6 +159,10 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
     generated = result.image;
     text = result.text;
   } catch (error) {
+    await db
+      .delete(generationEvents)
+      .where(eq(generationEvents.id, rateEvent.id))
+      .catch(() => undefined);
     console.error('[generate] failed:', error);
     Sentry.captureException(error, {
       level: 'error',
@@ -158,6 +192,12 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
     });
     viewUrl = await presignGet(GENERATED_BUCKET, key);
     console.log(`[persist] ${GENERATED_BUCKET}/${key} (${buffer.byteLength}b) org=${ctx.orgId}`);
+  } else {
+    // No image produced — refund the reserved rate-limit slot.
+    await db
+      .delete(generationEvents)
+      .where(eq(generationEvents.id, rateEvent.id))
+      .catch(() => undefined);
   }
 
   if (!text) {
@@ -355,6 +395,14 @@ function withReferenceImages(
   }
   result.push({ role: 'user', content: imageParts });
   return result;
+}
+
+function formatDuration(ms: number): string {
+  const totalMinutes = Math.max(1, Math.ceil(ms / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
 }
 
 function blockedMessage(moderation: ModerationResult): string {

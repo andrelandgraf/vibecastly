@@ -3,7 +3,7 @@
 const AGENT_URL = (process.env.NEXT_PUBLIC_AGENT_URL ?? '').replace(/\/+$/, '');
 
 export const IMAGE_LIMIT_PER_ORG = 10;
-export const ORG_LIMIT = 4;
+export const ORG_LIMIT = 10;
 
 export type ImageRecord = {
   id: string;
