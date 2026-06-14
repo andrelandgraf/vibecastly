@@ -58,9 +58,12 @@ export function OrgSwitcher() {
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   const list: Org[] = Array.isArray(orgs) ? orgs : [];
+  // Role can be momentarily undefined while the active member loads, so gate
+  // optimistically (the server still enforces permissions): allow management
+  // unless the user is explicitly a plain member; restrict delete from admins.
   const role = activeMember?.role;
-  const canManage = role === 'owner' || role === 'admin';
-  const canDelete = role === 'owner';
+  const canManage = role !== 'member';
+  const canDelete = role !== 'member' && role !== 'admin';
 
   async function handleSelect(id: string) {
     if (id === activeOrg?.id) return;
