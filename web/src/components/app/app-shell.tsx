@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Loader2 } from 'lucide-react';
 import { authClient } from '@/lib/auth/client';
 import {
   generate,
@@ -37,9 +37,17 @@ export function AppShell({
   userEmail: string;
   userImage?: string | null;
 }) {
-  const { data: orgs } = authClient.useListOrganizations();
+  const { data: orgs, isPending: orgsPending } = authClient.useListOrganizations();
   const { data: activeOrg } = authClient.useActiveOrganization();
   const orgId = activeOrg?.id ?? null;
+  const hasOrgs = Array.isArray(orgs) && orgs.length > 0;
+
+  // The org list and active org load client-side after first paint. Until we
+  // know the answer, don't render the onboarding ("Welcome") screen — otherwise
+  // a user who already has a workspace sees it flash before their workspace
+  // resolves. We're still resolving when the list hasn't loaded, or when the
+  // user has orgs but the active one is being auto-selected below.
+  const resolvingWorkspace = orgsPending || (hasOrgs && !orgId);
 
   const [people, setPeople] = useState<PersonRecord[]>([]);
   const [images, setImages] = useState<ImageRecord[]>([]);
@@ -158,7 +166,13 @@ export function AppShell({
       </header>
 
       {!orgId ? (
-        <Onboarding userName={userName} />
+        resolvingWorkspace ? (
+          <div className="flex flex-1 items-center justify-center p-6">
+            <Loader2 className="text-muted-foreground size-6 animate-spin" />
+          </div>
+        ) : (
+          <Onboarding userName={userName} />
+        )
       ) : (
         <div className="flex flex-1 flex-col lg:flex-row">
           <PeopleSidebar people={people} onChanged={refreshPeople} />
