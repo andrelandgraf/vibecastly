@@ -94,7 +94,15 @@ export default function LoginPage() {
         </div>
 
         <p className="text-muted-foreground relative text-xs">
-          Built on Neon — Auth · Functions · Storage · AI Gateway · Postgres.
+          Made by{' '}
+          <a
+            href="https://x.com/andrelandgraf"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-foreground font-medium underline-offset-4 hover:underline"
+          >
+            andrelandgraf
+          </a>
         </p>
       </div>
 

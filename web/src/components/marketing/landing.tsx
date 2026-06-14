@@ -7,7 +7,6 @@ import {
   Wand2,
   ArrowRight,
   ShieldCheck,
-  Database,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -165,7 +164,7 @@ export function Landing() {
                 <ShieldCheck className="size-3.5 text-primary" /> Secure team workspaces
               </span>
               <span className="flex items-center gap-1.5">
-                <Database className="size-3.5 text-primary" /> Built on Neon
+                <Sparkles className="size-3.5 text-primary" /> Learns your style
               </span>
             </div>
           </div>
@@ -189,8 +188,8 @@ export function Landing() {
           </h2>
           <div className="mt-10 grid gap-4 md:grid-cols-3">
             <Step n="1" icon={<Users className="size-5" />} title="Add your people">
-              Upload a clear photo and give them a name. Photos live in Neon Object Storage, scoped
-              to your workspace.
+              Upload a clear photo and give them a name. Their photos stay private, scoped to your
+              workspace.
             </Step>
             <Step n="2" icon={<AtSign className="size-5" />} title="@-mention in a prompt">
               Type <span className="text-foreground">@</span> to reference anyone you&apos;ve added.
@@ -215,8 +214,8 @@ export function Landing() {
             <Feature icon={<Images className="size-5" />} title="Manage everything">
               Rename, regenerate, download, or delete any image.
             </Feature>
-            <Feature icon={<Database className="size-5" />} title="One backend">
-              Neon Auth, Functions, Object Storage, AI Gateway & Postgres.
+            <Feature icon={<Sparkles className="size-5" />} title="Learns your style">
+              The agent remembers your preferences and personalizes each new image.
             </Feature>
           </div>
         </section>

@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://vibecastly.vercel.app"),
   title: "Vibecastly — cast anyone into any scene",
   description:
-    "Upload photos of people, @-mention them in a prompt, and generate AI images that use their faces as a starting point. Shared team workspaces, built on Neon.",
+    "Upload photos of people, @-mention them in a prompt, and generate AI images that use their faces as a starting point. Shared team workspaces.",
   openGraph: {
     title: "Vibecastly",
     description:
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Vibecastly",
-    description: "Cast anyone into any scene — AI image studio for teams, built on Neon.",
+    description: "Cast anyone into any scene — AI image studio for teams.",
   },
 };
 
