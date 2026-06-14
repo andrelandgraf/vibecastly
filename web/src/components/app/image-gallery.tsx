@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { MoreVertical, Pencil, Trash2, Download, ImageIcon, Loader2, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -36,8 +37,17 @@ export function ImageGallery({
 }) {
   const [renaming, setRenaming] = useState<ImageRecord | null>(null);
   const [deleting, setDeleting] = useState<ImageRecord | null>(null);
+  const [regenerating, setRegenerating] = useState<ImageRecord | null>(null);
   const [promptDraft, setPromptDraft] = useState('');
+  const [regenDraft, setRegenDraft] = useState('');
   const [busy, setBusy] = useState(false);
+
+  function handleRegenerate() {
+    const text = regenDraft.trim();
+    if (!regenerating || !text) return;
+    onRegenerate(text);
+    setRegenerating(null);
+  }
 
   async function handleRename() {
     if (!renaming) return;
@@ -124,7 +134,12 @@ export function ImageGallery({
                     <MoreVertical className="size-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => onRegenerate(img.prompt)}>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setRegenerating(img);
+                        setRegenDraft(img.prompt);
+                      }}
+                    >
                       <RotateCw className="size-4" /> Regenerate
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -157,6 +172,46 @@ export function ImageGallery({
           </div>
         ))}
       </div>
+
+      <Dialog open={regenerating !== null} onOpenChange={(o) => !o && setRegenerating(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Refine &amp; regenerate</DialogTitle>
+            <DialogDescription>
+              Edit the prompt below — add detail or change it — then regenerate a new image.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="regen-prompt">Prompt</Label>
+            <Textarea
+              id="regen-prompt"
+              value={regenDraft}
+              onChange={(e) => setRegenDraft(e.target.value)}
+              rows={4}
+              className="max-h-60"
+              autoFocus
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                  e.preventDefault();
+                  handleRegenerate();
+                }
+              }}
+            />
+            <p className="text-muted-foreground text-xs">
+              Keep <span className="text-foreground">@names</span> to reuse those people as
+              references.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRegenerating(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleRegenerate} disabled={!regenDraft.trim()}>
+              <RotateCw className="size-4" /> Regenerate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={renaming !== null} onOpenChange={(o) => !o && setRenaming(null)}>
         <DialogContent>
