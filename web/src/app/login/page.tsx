@@ -12,7 +12,7 @@ import { Loader2, Sparkles, AtSign, Users, Wand2 } from 'lucide-react';
 
 type Mode = 'signin' | 'signup';
 
-const showcase = ['/showcase/3.jpg', '/showcase/1.jpg', '/showcase/4.jpg'];
+const showcase = ['/showcase/look-1.jpg', '/showcase/look-2.jpg', '/showcase/look-3.jpg'];
 
 export default function LoginPage() {
   const router = useRouter();

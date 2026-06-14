@@ -47,7 +47,7 @@ function HeroCollage() {
         <div className="bg-background/60 mb-3 flex items-center gap-2 rounded-xl border px-3 py-2.5">
           <span className="flex-1 text-sm">
             <span className="text-primary">@Mia</span> and <span className="text-primary">@Rex</span>{' '}
-            on a tropical beach
+            as wizards at a magic academy
           </span>
           <span className="bg-primary text-primary-foreground flex size-7 items-center justify-center rounded-full">
             <Wand2 className="size-3.5" />
