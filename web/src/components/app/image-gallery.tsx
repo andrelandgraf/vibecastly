@@ -49,15 +49,16 @@ export function ImageGallery({
     setRegenerating(null);
   }
 
-  // The image lives on a different origin (object storage), where the <a download>
-  // attribute is ignored — the browser would just navigate to it. Fetch it as a
-  // blob and download via a same-origin object URL; if that's blocked (e.g. CORS),
-  // fall back to opening it in a new tab.
+  // The image lives on cross-origin object storage where the <a download>
+  // attribute is ignored and a direct fetch is CORS-blocked. Pull it through the
+  // same-origin /api/download proxy (which sets an attachment header) and save it
+  // as a blob; if anything fails, fall back to opening it in a new tab.
   async function handleDownload(img: ImageRecord) {
     const ext = img.contentType?.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
     const filename = `vibecastly-${img.id}.${ext}`;
+    const proxyUrl = `/api/download?url=${encodeURIComponent(img.url)}&name=${encodeURIComponent(filename)}`;
     try {
-      const res = await fetch(img.url);
+      const res = await fetch(proxyUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
