@@ -24,6 +24,8 @@ import { JobsPanel, type Job } from './jobs-panel';
 import { Onboarding } from './onboarding';
 import { AccountMenu } from './account-menu';
 
+const LAST_ORG_KEY = 'vibecastly:last-org-id';
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -72,11 +74,21 @@ export function AppShell({
     }
   }, []);
 
+  // When no workspace is active yet, default to the last one the user selected
+  // (remembered in localStorage), falling back to the first in the list.
   useEffect(() => {
-    if (!orgId && Array.isArray(orgs) && orgs.length > 0) {
-      void authClient.organization.setActive({ organizationId: orgs[0].id });
-    }
+    if (orgId || !Array.isArray(orgs) || orgs.length === 0) return;
+    const stored = typeof window !== 'undefined' ? window.localStorage.getItem(LAST_ORG_KEY) : null;
+    const preferred = stored && orgs.some((o) => o.id === stored) ? stored : orgs[0].id;
+    void authClient.organization.setActive({ organizationId: preferred });
   }, [orgId, orgs]);
+
+  // Remember the active workspace so we can restore it on the next page load.
+  useEffect(() => {
+    if (orgId && typeof window !== 'undefined') {
+      window.localStorage.setItem(LAST_ORG_KEY, orgId);
+    }
+  }, [orgId]);
 
   useEffect(() => {
     setActiveOrg(orgId);
