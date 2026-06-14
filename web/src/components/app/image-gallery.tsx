@@ -49,6 +49,30 @@ export function ImageGallery({
     setRegenerating(null);
   }
 
+  // The image lives on a different origin (object storage), where the <a download>
+  // attribute is ignored — the browser would just navigate to it. Fetch it as a
+  // blob and download via a same-origin object URL; if that's blocked (e.g. CORS),
+  // fall back to opening it in a new tab.
+  async function handleDownload(img: ImageRecord) {
+    const ext = img.contentType?.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+    const filename = `vibecastly-${img.id}.${ext}`;
+    try {
+      const res = await fetch(img.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      window.open(img.url, '_blank', 'noopener,noreferrer');
+    }
+  }
+
   async function handleRename() {
     if (!renaming) return;
     setBusy(true);
@@ -150,7 +174,7 @@ export function ImageGallery({
                     >
                       <Pencil className="size-4" /> Edit caption
                     </DropdownMenuItem>
-                    <DropdownMenuItem render={<a href={img.url} download={`${img.id}.jpg`} />}>
+                    <DropdownMenuItem onClick={() => void handleDownload(img)}>
                       <Download className="size-4" /> Download
                     </DropdownMenuItem>
                     <DropdownMenuItem variant="destructive" onClick={() => setDeleting(img)}>
