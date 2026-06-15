@@ -107,7 +107,7 @@ export function AppShell({
   // Fire-and-forget generation: each call is an independent job, so multiple
   // can run at once without blocking the composer.
   const runJob = useCallback(
-    async (prompt: string, personIds: string[]) => {
+    async (prompt: string, personIds: string[], referenceImage: File | null) => {
       if (!agentConfigured()) {
         toast.error('NEXT_PUBLIC_AGENT_URL is not configured');
         return;
@@ -117,9 +117,9 @@ export function AppShell({
         return;
       }
       const id = crypto.randomUUID();
-      setJobs((j) => [...j, { id, prompt, personIds, status: 'running' }]);
+      setJobs((j) => [...j, { id, prompt, personIds, referenceImage, status: 'running' }]);
       try {
-        await generate(prompt, personIds);
+        await generate(prompt, personIds, referenceImage);
         setJobs((j) => j.filter((x) => x.id !== id));
         await refreshImages();
       } catch (err) {
@@ -142,7 +142,7 @@ export function AppShell({
 
   function handleRetry(job: Job) {
     setJobs((j) => j.filter((x) => x.id !== job.id));
-    void runJob(job.prompt, job.personIds);
+    void runJob(job.prompt, job.personIds, job.referenceImage ?? null);
   }
 
   function dismissJob(id: string) {
@@ -201,8 +201,8 @@ export function AppShell({
                 <MentionComposer
                   people={people}
                   status="ready"
-                  onSubmit={(text, personIds) => {
-                    void runJob(text, personIds);
+                  onSubmit={(text, personIds, referenceImage) => {
+                    void runJob(text, personIds, referenceImage);
                   }}
                 />
               </div>
@@ -228,7 +228,7 @@ export function AppShell({
                 images={images}
                 loading={loadingImages}
                 onChanged={refreshImages}
-                onRegenerate={(prompt) => void runJob(prompt, personIdsFromPrompt(prompt))}
+                onRegenerate={(prompt) => void runJob(prompt, personIdsFromPrompt(prompt), null)}
               />
             </div>
           </main>

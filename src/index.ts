@@ -82,10 +82,27 @@ export default {
 };
 
 async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
-  const { messages, personIds } = (await request.json()) as {
+  const { messages, personIds, referenceImage } = (await request.json()) as {
     messages: UIMessage[];
     personIds?: string[];
+    referenceImage?: { base64?: unknown; contentType?: unknown } | null;
   };
+
+  let attachedReference: ReferenceImagePart | null = null;
+  if (referenceImage && typeof referenceImage === 'object') {
+    const base64 = typeof referenceImage.base64 === 'string' ? referenceImage.base64 : '';
+    const contentType =
+      typeof referenceImage.contentType === 'string' && referenceImage.contentType.startsWith('image/')
+        ? referenceImage.contentType
+        : 'image/jpeg';
+    if (base64.length > 0) {
+      attachedReference = {
+        type: 'image',
+        image: Buffer.from(base64, 'base64'),
+        mediaType: contentType,
+      };
+    }
+  }
 
   // Free-plan cap: block generation when the workspace gallery is full.
   const [{ value: imageCount }] = await db
@@ -125,7 +142,10 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
   // Gatekeeper: a strong moderation agent vets the prompt before we spend any
   // work generating. Blocks sexual, harassment/bullying, hateful, violent, and
   // other unsafe requests.
-  const moderation = await moderatePrompt(prompt, (personIds?.length ?? 0) > 0);
+  const moderation = await moderatePrompt(
+    prompt,
+    (personIds?.length ?? 0) > 0 || attachedReference !== null,
+  );
   if (!moderation.allowed) {
     console.warn(
       `[moderation] blocked org=${ctx.orgId} user=${ctx.userId} category=${moderation.category}: ${prompt.slice(0, 200)}`,
@@ -150,6 +170,7 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
     .returning({ id: generationEvents.id });
 
   const referenceParts = await loadReferenceImages(ctx.orgId, personIds ?? []);
+  if (attachedReference) referenceParts.push(attachedReference);
   const modelMessages = withReferenceImages(convertToModelMessages(messages), referenceParts);
 
   let generated: { base64: string; mediaType: string } | null = null;

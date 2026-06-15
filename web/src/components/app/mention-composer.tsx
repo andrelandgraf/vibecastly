@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { ArrowUp, AtSign, Loader2 } from 'lucide-react';
+import { ArrowUp, AtSign, ImagePlus, Loader2, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import type { PersonRecord } from '@/lib/agent-client';
@@ -28,13 +28,32 @@ export function MentionComposer({
 }: {
   people: PersonRecord[];
   status: 'submitted' | 'streaming' | 'ready' | 'error';
-  onSubmit: (text: string, personIds: string[]) => void | Promise<void>;
+  onSubmit: (text: string, personIds: string[], referenceImage: File | null) => void | Promise<void>;
 }) {
   const [text, setText] = useState('');
   const [query, setQuery] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [referenceImage, setReferenceImage] = useState<File | null>(null);
+  const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const busy = status === 'submitted' || status === 'streaming';
+
+  function pickReferenceImage(file: File | null) {
+    setReferenceImage((prev) => {
+      if (prev === file) return prev;
+      return file;
+    });
+    setReferencePreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return file ? URL.createObjectURL(file) : null;
+    });
+  }
+
+  function clearReferenceImage() {
+    pickReferenceImage(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
 
   const matches =
     query !== null
@@ -66,15 +85,35 @@ export function MentionComposer({
     const value = text.trim();
     if (!value || busy) return;
     const personIds = people.filter((p) => mentionRegex(p.name).test(text)).map((p) => p.id);
-    await onSubmit(value, personIds);
+    await onSubmit(value, personIds, referenceImage);
     setText('');
     setQuery(null);
+    clearReferenceImage();
   }
 
   return (
     <div className="relative">
-      {referenced.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
+      {(referenced.length > 0 || referencePreview) && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          {referencePreview && (
+            <span className="bg-primary/10 text-primary group inline-flex items-center gap-1.5 rounded-full py-1 pr-1 pl-1 text-xs font-medium">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={referencePreview}
+                alt="Reference"
+                className="size-5 rounded-full object-cover"
+              />
+              Reference image
+              <button
+                type="button"
+                aria-label="Remove reference image"
+                className="hover:bg-primary/20 ml-0.5 inline-flex size-4 items-center justify-center rounded-full"
+                onClick={clearReferenceImage}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          )}
           {referenced.map((p) => (
             <span
               key={p.id}
@@ -127,6 +166,25 @@ export function MentionComposer({
             }
           }}
         />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => pickReferenceImage(e.target.files?.[0] ?? null)}
+        />
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-9 shrink-0 rounded-full"
+          disabled={busy}
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Attach reference image"
+          title="Attach reference image"
+          type="button"
+        >
+          <ImagePlus className="size-4" />
+        </Button>
         <Button
           size="icon"
           className="size-9 shrink-0 rounded-full"
