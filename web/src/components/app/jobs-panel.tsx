@@ -10,6 +10,7 @@ export type Job = {
   id: string;
   prompt: string;
   personIds: string[];
+  referenceImage?: File | null;
   status: 'running' | 'error';
   error?: string;
   kind?: JobErrorKind;

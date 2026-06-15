@@ -110,13 +110,38 @@ async function request(path: string, init: RequestInit = {}, retry = true): Prom
   return res;
 }
 
-export async function generate(prompt: string, personIds: string[]): Promise<void> {
+export type ReferenceImageInput = { base64: string; contentType: string };
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function generate(
+  prompt: string,
+  personIds: string[],
+  referenceImage?: ReferenceImageInput | File | null,
+): Promise<void> {
+  let referencePayload: ReferenceImageInput | null = null;
+  if (referenceImage) {
+    if (referenceImage instanceof File) {
+      const base64 = await fileToBase64(referenceImage);
+      referencePayload = { base64, contentType: referenceImage.type || 'image/jpeg' };
+    } else {
+      referencePayload = referenceImage;
+    }
+  }
   const res = await request('/', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       messages: [{ id: crypto.randomUUID(), role: 'user', parts: [{ type: 'text', text: prompt }] }],
       personIds,
+      ...(referencePayload ? { referenceImage: referencePayload } : {}),
     }),
   });
   // The function persists the image before it starts streaming, so awaiting the
