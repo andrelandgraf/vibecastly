@@ -10,7 +10,14 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const showcase = ['/showcase/1.jpg', '/showcase/2.jpg', '/showcase/3.jpg', '/showcase/4.jpg'];
+// Real people cast into fun scenes — mirrors the login showcase and reflects
+// what the product actually does (vs. generic AI art).
+const showcase = [
+  '/showcase/look-1.jpg',
+  '/showcase/look-2.jpg',
+  '/showcase/look-3.jpg',
+  '/showcase/scene.jpg',
+];
 
 function PersonChip({ src, name }: { src: string; name: string }) {
   return (
@@ -172,13 +179,25 @@ export function Landing() {
         </section>
 
         {/* Mobile showcase strip */}
-        <section className="mx-auto mb-16 grid w-full max-w-6xl grid-cols-4 gap-3 px-5 sm:px-8 lg:hidden">
-          {showcase.map((src, i) => (
-            <div key={i} className="aspect-square overflow-hidden rounded-xl border">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt="AI generated" className="size-full object-cover" />
-            </div>
-          ))}
+        <section className="mx-auto mb-16 w-full max-w-6xl px-5 sm:px-8 lg:hidden">
+          <p className="text-muted-foreground mb-3 flex items-center gap-1.5 text-xs font-medium">
+            <Sparkles className="size-3.5 text-primary" /> Real people, cast into any scene
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {showcase.map((src, i) => (
+              <div
+                key={i}
+                className="aspect-[4/5] overflow-hidden rounded-2xl border shadow-sm"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={src}
+                  alt="A person generated into a playful AI scene"
+                  className="size-full object-cover"
+                />
+              </div>
+            ))}
+          </div>
         </section>
 
         {/* How it works */}
