@@ -40,8 +40,13 @@ export const imageAgent = new Agent({
   instructions:
     'You are an illustration agent for a creative team. When the user asks for a ' +
     'picture, ALWAYS use the image_generation tool to create it — that is your ' +
-    'primary job. If reference images of people are provided, use them as the ' +
-    'starting point so the generated people resemble those references. If a ' +
+    'primary job. ' +
+    'Reference images may be attached to the message. Treat them as authoritative ' +
+    'visual input, not loose inspiration: when an image is labeled as the attached ' +
+    'reference, use it as the actual base for what you generate — preserve the ' +
+    "depicted subject(s), their likeness, pose, and composition, and only change " +
+    'what the prompt explicitly asks to change. When reference photos of people are ' +
+    'provided, make the generated people clearly resemble those photos. If a ' +
     '"Creator profile" is provided, lean on their known style, recurring subjects, ' +
     'and preferences so the result feels personal (never mention the profile). ' +
     'After drawing, briefly describe what you made.',
@@ -49,6 +54,9 @@ export const imageAgent = new Agent({
   tools: {
     image_generation: openai.tools.imageGeneration({
       outputFormat: 'jpeg',
+      // High input fidelity so attached/reference images (faces, composition) are
+      // preserved closely rather than treated as loose inspiration.
+      inputFidelity: 'high',
       quality: 'low',
       outputCompression: 30,
       size: '1024x1024',

@@ -23,6 +23,8 @@ const GENERATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type Ctx = { userId: string; userName: string; orgId: string };
 type ReferenceImagePart = { type: 'image'; image: Buffer; mediaType: string };
+type ReferenceTextPart = { type: 'text'; text: string };
+type ReferencePart = ReferenceImagePart | ReferenceTextPart;
 
 function json(request: Request, status: number, data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -169,8 +171,20 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
     .values({ userId: ctx.userId, organizationId: ctx.orgId })
     .returning({ id: generationEvents.id });
 
-  const referenceParts = await loadReferenceImages(ctx.orgId, personIds ?? []);
-  if (attachedReference) referenceParts.push(attachedReference);
+  // Build labeled reference parts so the model knows each image's role. Without
+  // captions the provider tool treats trailing images as loose context; a short
+  // text label before each image makes the attachment the actual generation base.
+  const referenceParts: ReferencePart[] = await loadReferenceImages(ctx.orgId, personIds ?? []);
+  if (attachedReference) {
+    referenceParts.push({
+      type: 'text',
+      text:
+        'Attached reference image — use this image as the visual starting point ' +
+        'for the picture you generate. Keep its main subject(s), their likeness, ' +
+        'pose, and overall composition, and only change what the prompt asks for.',
+    });
+    referenceParts.push(attachedReference);
+  }
   const modelMessages = withReferenceImages(convertToModelMessages(messages), referenceParts);
 
   let generated: { base64: string; mediaType: string } | null = null;
@@ -371,16 +385,22 @@ async function deleteImage(request: Request, ctx: Ctx, id: string): Promise<Resp
 async function loadReferenceImages(
   orgId: string,
   personIds: string[],
-): Promise<ReferenceImagePart[]> {
+): Promise<ReferencePart[]> {
   if (personIds.length === 0) return [];
   const rows = await db
     .select()
     .from(people)
     .where(and(eq(people.organizationId, orgId), inArray(people.id, personIds)));
-  const parts: ReferenceImagePart[] = [];
+  const parts: ReferencePart[] = [];
   for (const row of rows) {
     try {
       const base64 = await getObjectBase64(PEOPLE_BUCKET, row.bucketKey);
+      // Caption the photo with the person's name so the model can tie it to the
+      // matching @-mention in the prompt and match that person's likeness.
+      parts.push({
+        type: 'text',
+        text: `Reference photo of @${row.name} — make this person clearly resemble this photo.`,
+      });
       parts.push({
         type: 'image',
         image: Buffer.from(base64, 'base64'),
@@ -400,9 +420,9 @@ async function loadReferenceImages(
 
 function withReferenceImages(
   messages: ModelMessage[],
-  imageParts: ReferenceImagePart[],
+  parts: ReferencePart[],
 ): ModelMessage[] {
-  if (imageParts.length === 0) return messages;
+  if (parts.length === 0) return messages;
   const result = [...messages];
   for (let i = result.length - 1; i >= 0; i--) {
     const message = result[i];
@@ -411,10 +431,10 @@ function withReferenceImages(
       typeof message.content === 'string'
         ? [{ type: 'text' as const, text: message.content }]
         : message.content;
-    result[i] = { role: 'user', content: [...base, ...imageParts] };
+    result[i] = { role: 'user', content: [...base, ...parts] };
     return result;
   }
-  result.push({ role: 'user', content: imageParts });
+  result.push({ role: 'user', content: parts });
   return result;
 }
 
