@@ -21,7 +21,15 @@ const MAX_IMAGES_PER_ORG = 10;
 const DAILY_GENERATION_LIMIT = 20;
 const GENERATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-type Ctx = { userId: string; userName: string; orgId: string };
+// Accounts that bypass the free-plan image cap and daily rate limit: any
+// workspace they generate in is effectively unlimited. Compared case-insensitively.
+const UNLIMITED_EMAILS = new Set(['andre.landgraf@gmail.com']);
+
+function hasUnlimitedImages(email: string): boolean {
+  return UNLIMITED_EMAILS.has(email.trim().toLowerCase());
+}
+
+type Ctx = { userId: string; userName: string; userEmail: string; orgId: string };
 type ReferenceImagePart = { type: 'image'; image: Buffer; mediaType: string };
 type ReferenceTextPart = { type: 'text'; text: string };
 type ReferencePart = ReferenceImagePart | ReferenceTextPart;
@@ -77,7 +85,12 @@ export default {
       return json(request, 403, { error: 'Not a member of this organization' });
     }
 
-    const ctx: Ctx = { userId: identity.id, userName: identity.name, orgId };
+    const ctx: Ctx = {
+      userId: identity.id,
+      userName: identity.name,
+      userEmail: identity.email,
+      orgId,
+    };
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/';
     const method = request.method;
@@ -132,37 +145,45 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
     }
   }
 
+  // Allowlisted accounts get unlimited images: skip the gallery cap and the
+  // daily rate limit below.
+  const unlimited = hasUnlimitedImages(ctx.userEmail);
+
   // Free-plan cap: block generation when the workspace gallery is full.
-  const [{ value: imageCount }] = await db
-    .select({ value: count() })
-    .from(images)
-    .where(eq(images.organizationId, ctx.orgId));
-  if (imageCount >= MAX_IMAGES_PER_ORG) {
-    return json(request, 409, {
-      error: 'image_limit_reached',
-      message: `This workspace is at the free-plan limit of ${MAX_IMAGES_PER_ORG} images. Delete some to make room.`,
-    });
+  if (!unlimited) {
+    const [{ value: imageCount }] = await db
+      .select({ value: count() })
+      .from(images)
+      .where(eq(images.organizationId, ctx.orgId));
+    if (imageCount >= MAX_IMAGES_PER_ORG) {
+      return json(request, 409, {
+        error: 'image_limit_reached',
+        message: `This workspace is at the free-plan limit of ${MAX_IMAGES_PER_ORG} images. Delete some to make room.`,
+      });
+    }
   }
 
   // Per-user rate limit: at most DAILY_GENERATION_LIMIT generations per rolling
   // 24h, across all workspaces. Checked before the (paid) moderation call.
   const windowStart = new Date(Date.now() - GENERATION_WINDOW_MS);
-  const recentEvents = await db
-    .select({ createdAt: generationEvents.createdAt })
-    .from(generationEvents)
-    .where(
-      and(eq(generationEvents.userId, ctx.userId), gt(generationEvents.createdAt, windowStart)),
-    )
-    .orderBy(desc(generationEvents.createdAt))
-    .limit(DAILY_GENERATION_LIMIT);
-  if (recentEvents.length >= DAILY_GENERATION_LIMIT) {
-    const oldest = recentEvents[recentEvents.length - 1].createdAt;
-    const retryMs = Math.max(0, oldest.getTime() + GENERATION_WINDOW_MS - Date.now());
-    return json(request, 429, {
-      error: 'rate_limited',
-      message: `You've reached your limit of ${DAILY_GENERATION_LIMIT} image generations per 24 hours. Try again in ${formatDuration(retryMs)}.`,
-      retryAfterMs: retryMs,
-    });
+  if (!unlimited) {
+    const recentEvents = await db
+      .select({ createdAt: generationEvents.createdAt })
+      .from(generationEvents)
+      .where(
+        and(eq(generationEvents.userId, ctx.userId), gt(generationEvents.createdAt, windowStart)),
+      )
+      .orderBy(desc(generationEvents.createdAt))
+      .limit(DAILY_GENERATION_LIMIT);
+    if (recentEvents.length >= DAILY_GENERATION_LIMIT) {
+      const oldest = recentEvents[recentEvents.length - 1].createdAt;
+      const retryMs = Math.max(0, oldest.getTime() + GENERATION_WINDOW_MS - Date.now());
+      return json(request, 429, {
+        error: 'rate_limited',
+        message: `You've reached your limit of ${DAILY_GENERATION_LIMIT} image generations per 24 hours. Try again in ${formatDuration(retryMs)}.`,
+        retryAfterMs: retryMs,
+      });
+    }
   }
 
   const prompt = lastUserText(messages);

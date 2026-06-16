@@ -19,7 +19,7 @@ export function corsHeaders(request: Request): Record<string, string> {
   };
 }
 
-export type Identity = { id: string; name: string };
+export type Identity = { id: string; name: string; email: string };
 
 export async function authenticate(request: Request): Promise<Identity | null> {
   const header = request.headers.get('authorization');
@@ -30,13 +30,9 @@ export async function authenticate(request: Request): Promise<Identity | null> {
   try {
     const { payload } = await jwtVerify(token, jwks, { issuer: ISSUER });
     if (typeof payload.sub !== 'string') return null;
-    const name =
-      typeof payload.name === 'string'
-        ? payload.name
-        : typeof payload.email === 'string'
-          ? payload.email
-          : '';
-    return { id: payload.sub, name };
+    const email = typeof payload.email === 'string' ? payload.email : '';
+    const name = typeof payload.name === 'string' ? payload.name : email;
+    return { id: payload.sub, name, email };
   } catch (error) {
     console.error('[auth] token verification failed:', error);
     return null;

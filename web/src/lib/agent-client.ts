@@ -5,6 +5,15 @@ const AGENT_URL = (process.env.NEXT_PUBLIC_AGENT_URL ?? '').replace(/\/+$/, '');
 export const IMAGE_LIMIT_PER_ORG = 10;
 export const ORG_LIMIT = 10;
 
+// Accounts that bypass the free-plan image cap (kept in sync with the function's
+// UNLIMITED_EMAILS). Used only to hide the limit UI; the backend is the source
+// of truth for enforcement.
+const UNLIMITED_EMAILS = new Set(['andre.landgraf@gmail.com']);
+
+export function hasUnlimitedImages(email: string | null | undefined): boolean {
+  return !!email && UNLIMITED_EMAILS.has(email.trim().toLowerCase());
+}
+
 export type ImageRecord = {
   id: string;
   prompt: string;

@@ -11,6 +11,7 @@ import {
   listImages,
   listPeople,
   IMAGE_LIMIT_PER_ORG,
+  hasUnlimitedImages,
   AgentError,
   type ImageRecord,
   type PersonRecord,
@@ -150,6 +151,8 @@ export function AppShell({
   }
 
   const runningCount = jobs.filter((j) => j.status === 'running').length;
+  const unlimited = hasUnlimitedImages(userEmail);
+  const atImageLimit = !unlimited && images.length >= IMAGE_LIMIT_PER_ORG;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -213,12 +216,14 @@ export function AppShell({
                   {runningCount > 0 && (
                     <span className="text-primary mr-2">{runningCount} generating…</span>
                   )}
-                  <span className={images.length >= IMAGE_LIMIT_PER_ORG ? 'text-destructive' : ''}>
-                    {images.length} / {IMAGE_LIMIT_PER_ORG} images
+                  <span className={atImageLimit ? 'text-destructive' : ''}>
+                    {unlimited
+                      ? `${images.length} images`
+                      : `${images.length} / ${IMAGE_LIMIT_PER_ORG} images`}
                   </span>
                 </span>
               </div>
-              {images.length >= IMAGE_LIMIT_PER_ORG && (
+              {atImageLimit && (
                 <p className="bg-destructive/10 text-destructive mb-3 rounded-lg px-3 py-2 text-xs">
                   This workspace is at the free-plan limit of {IMAGE_LIMIT_PER_ORG} images. Delete
                   some to generate more.
