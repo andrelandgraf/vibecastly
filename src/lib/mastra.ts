@@ -54,9 +54,10 @@ export const imageAgent = new Agent({
   tools: {
     image_generation: openai.tools.imageGeneration({
       outputFormat: 'jpeg',
-      // High input fidelity so attached/reference images (faces, composition) are
-      // preserved closely rather than treated as loose inspiration.
-      inputFidelity: 'high',
+      // NOTE: inputFidelity: 'high' would help reference adherence but the Neon AI
+      // Gateway / databricks image route rejects it with HTTP 400 (Bad Request),
+      // so it's intentionally omitted. Reference adherence is driven by the
+      // labeled reference parts + instructions instead.
       quality: 'low',
       outputCompression: 30,
       size: '1024x1024',

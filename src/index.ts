@@ -45,6 +45,19 @@ async function flushSentry(): Promise<void> {
   }
 }
 
+// Pull the useful fields off an AI SDK APICallError (status + response body +
+// URL) so a gateway/provider rejection records *why* it failed, not just the
+// generic "Bad Request" status text. Property-narrowed (no casts).
+function describeApiError(error: unknown): Record<string, unknown> {
+  if (typeof error !== 'object' || error === null) return {};
+  const details: Record<string, unknown> = {};
+  if ('name' in error) details.name = error.name;
+  if ('statusCode' in error) details.statusCode = error.statusCode;
+  if ('url' in error) details.url = error.url;
+  if ('responseBody' in error) details.responseBody = error.responseBody;
+  return details;
+}
+
 export default {
   async fetch(request: Request): Promise<Response> {
     if (request.method === 'OPTIONS') {
@@ -212,12 +225,13 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
       .delete(generationEvents)
       .where(eq(generationEvents.id, rateEvent.id))
       .catch(() => undefined);
-    console.error('[generate] failed:', error);
+    const apiDetails = describeApiError(error);
+    console.error('[generate] failed:', error, apiDetails);
     Sentry.captureException(error, {
       level: 'error',
       tags: { component: 'agent', phase: 'generate' },
       user: { id: ctx.userId },
-      extra: { orgId: ctx.orgId, prompt },
+      extra: { orgId: ctx.orgId, prompt, ...apiDetails },
     });
     await flushSentry();
     return json(request, 502, {
