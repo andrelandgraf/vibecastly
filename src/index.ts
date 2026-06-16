@@ -33,6 +33,18 @@ function json(request: Request, status: number, data: unknown): Response {
   });
 }
 
+// @sentry/node ships events on a background transport. A Neon Function returns
+// its response and then scales to zero, which can suspend the isolate before
+// that HTTP request to Sentry completes — silently dropping captured events.
+// Flush (bounded) before returning any error response so captures actually land.
+async function flushSentry(): Promise<void> {
+  try {
+    await Sentry.flush(2000);
+  } catch {
+    // Never let telemetry flushing delay or break the user response.
+  }
+}
+
 export default {
   async fetch(request: Request): Promise<Response> {
     if (request.method === 'OPTIONS') {
@@ -76,6 +88,7 @@ export default {
         user: { id: ctx.userId },
         extra: { orgId: ctx.orgId },
       });
+      await flushSentry();
       return json(request, 500, {
         error: error instanceof Error ? error.message : 'Internal error',
       });
@@ -158,6 +171,7 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
       user: { id: ctx.userId },
       extra: { orgId: ctx.orgId, reason: moderation.reason },
     });
+    await flushSentry();
     return json(request, 422, {
       error: 'prompt_blocked',
       message: blockedMessage(moderation),
@@ -205,6 +219,7 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
       user: { id: ctx.userId },
       extra: { orgId: ctx.orgId, prompt },
     });
+    await flushSentry();
     return json(request, 502, {
       error: 'generation_failed',
       message: error instanceof Error ? error.message : String(error),
