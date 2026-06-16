@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { RedirectIfAuthed } from './redirect-if-authed';
 
 // Real people cast into fun scenes — mirrors the login showcase and reflects
 // what the product actually does (vs. generic AI art).
@@ -122,6 +123,7 @@ function Feature({
 export function Landing() {
   return (
     <div className="flex min-h-screen flex-col">
+      <RedirectIfAuthed />
       <header className="sticky top-0 z-30 flex items-center justify-between px-5 py-4 sm:px-8">
         <div className="flex items-center gap-2">
           <div className="bg-primary/15 ring-primary/20 flex size-7 items-center justify-center rounded-lg ring-1">
