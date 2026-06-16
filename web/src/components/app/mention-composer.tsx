@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import { ArrowUp, AtSign, ImagePlus, Loader2, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -35,11 +35,15 @@ export function MentionComposer({
   const [activeIndex, setActiveIndex] = useState(0);
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
   const busy = status === 'submitted' || status === 'streaming';
 
   function pickReferenceImage(file: File | null) {
+    // Only accept images; silently ignore anything else dropped/pasted in.
+    if (file && !file.type.startsWith('image/')) return;
     setReferenceImage((prev) => {
       if (prev === file) return prev;
       return file;
@@ -53,6 +57,45 @@ export function MentionComposer({
   function clearReferenceImage() {
     pickReferenceImage(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  function hasImage(transfer: DataTransfer | null): boolean {
+    if (!transfer) return false;
+    return Array.from(transfer.items ?? []).some((item) => item.kind === 'file');
+  }
+
+  function handleDragEnter(e: DragEvent) {
+    if (busy || !hasImage(e.dataTransfer)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  }
+
+  function handleDragLeave() {
+    if (busy) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  }
+
+  function handleDrop(e: DragEvent) {
+    if (busy) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    const file = Array.from(e.dataTransfer?.files ?? []).find((f) => f.type.startsWith('image/'));
+    if (file) pickReferenceImage(file);
+  }
+
+  function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    if (busy) return;
+    const file = Array.from(e.clipboardData?.items ?? [])
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .find((f): f is File => f !== null);
+    if (file) {
+      e.preventDefault();
+      pickReferenceImage(file);
+    }
   }
 
   const matches =
@@ -131,13 +174,30 @@ export function MentionComposer({
         </div>
       )}
 
-      <div className="bg-card focus-within:border-primary/50 relative flex items-end gap-2 rounded-2xl border p-2 shadow-sm transition-colors">
+      <div
+        className={`bg-card relative flex items-end gap-2 rounded-2xl border p-2 shadow-sm transition-colors ${
+          dragging ? 'border-primary ring-primary/30 ring-2' : 'focus-within:border-primary/50'
+        }`}
+        onDragEnter={handleDragEnter}
+        onDragOver={(e) => {
+          if (!busy && hasImage(e.dataTransfer)) e.preventDefault();
+        }}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {dragging && (
+          <div className="bg-primary/5 text-primary pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-2xl text-sm font-medium backdrop-blur-[1px]">
+            <ImagePlus className="size-4" />
+            Drop image to attach
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
           rows={1}
           placeholder="Describe an image…  Tip: type @ to reference a person"
           className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+          onPaste={handlePaste}
           onChange={(e) => {
             setText(e.target.value);
             syncQuery(e.target.value, e.target.selectionStart ?? e.target.value.length);
@@ -174,16 +234,16 @@ export function MentionComposer({
           onChange={(e) => pickReferenceImage(e.target.files?.[0] ?? null)}
         />
         <Button
-          size="icon"
-          variant="ghost"
-          className="size-9 shrink-0 rounded-full"
+          variant="outline"
+          className="h-9 shrink-0 gap-1.5 rounded-full px-3"
           disabled={busy}
           onClick={() => fileInputRef.current?.click()}
           aria-label="Attach reference image"
-          title="Attach reference image"
+          title="Attach a reference image"
           type="button"
         >
           <ImagePlus className="size-4" />
+          <span className="hidden sm:inline">{referenceImage ? 'Replace' : 'Image'}</span>
         </Button>
         <Button
           size="icon"
@@ -244,7 +304,8 @@ export function MentionComposer({
         </div>
       ) : (
         <p className="text-muted-foreground mt-1.5 px-1 text-xs">
-          Press Enter to generate · Shift+Enter for a new line
+          Press Enter to generate · Shift+Enter for a new line · Drop or paste an image to use as a
+          reference
         </p>
       )}
     </div>
