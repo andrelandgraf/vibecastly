@@ -1,7 +1,7 @@
 import { Mastra } from '@mastra/core/mastra';
 import { Agent } from '@mastra/core/agent';
 import { Observability, MastraPlatformExporter } from '@mastra/observability';
-import { openai, createOpenAI } from '@ai-sdk/openai';
+import { openai } from '@ai-sdk/openai';
 import { eq } from 'drizzle-orm';
 import type { ModelMessage } from 'ai';
 import { Sentry } from '../instrument';
@@ -10,17 +10,9 @@ import { creatorProfiles } from '../db/schema';
 
 export const MODEL = 'databricks-gpt-5-mini';
 
-// Strong gatekeeper model. Claude (and other non-OpenAI catalog models) are
-// served on the gateway's chat-completions (MLflow) route, not the OpenAI
-// Responses route the image agent uses — so the moderation agent gets its own
-// provider pointed at that route. The OPENAI_* env vars are injected by Neon
-// when the AI Gateway is enabled (Responses base URL ending in /openai/v1).
-export const MODERATION_MODEL = 'claude-sonnet-4-6';
-const gatewayChatBaseUrl = (process.env.OPENAI_BASE_URL ?? '').replace(
-  '/openai/v1',
-  '/mlflow/v1',
-);
-const gatewayChat = createOpenAI({ baseURL: gatewayChatBaseUrl });
+// Strong gatekeeper model on the gateway's chat-completions route (Mastra 1.47+
+// reads NEON_AI_GATEWAY_* from the environment).
+export const MODERATION_MODEL = 'neon/claude-sonnet-4-6';
 
 const PROFILE_TEMPLATE = `# Creator Profile
 - **Preferred subjects**:
@@ -104,7 +96,7 @@ export const moderationAgent = new Agent({
     '"minors" | "harassment" | "hate" | "violence" | "self_harm" | "illegal" | ' +
     '"none", "reason": string}. Use "none" when allowed is true. Keep reason under ' +
     '20 words.',
-  model: gatewayChat.chat(MODERATION_MODEL),
+  model: MODERATION_MODEL,
 });
 
 // Export agent runs (model + tool calls, latency, tokens) to the Mastra platform.
@@ -208,7 +200,7 @@ export async function moderatePrompt(
 ): Promise<ModerationResult> {
   const text = promptText.trim();
   if (!text) return { allowed: true, category: 'none', reason: 'empty prompt' };
-  if (!gatewayChatBaseUrl) {
+  if (!process.env.NEON_AI_GATEWAY_TOKEN && !process.env.OPENAI_API_KEY) {
     return { allowed: true, category: 'none', reason: 'gateway not configured' };
   }
 
