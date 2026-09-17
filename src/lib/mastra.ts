@@ -1,18 +1,23 @@
 import { Mastra } from '@mastra/core/mastra';
 import { Agent } from '@mastra/core/agent';
 import { Observability, MastraPlatformExporter } from '@mastra/observability';
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI } from '@ai-sdk/openai';
 import { eq } from 'drizzle-orm';
 import type { ModelMessage } from 'ai';
 import { Sentry } from '../instrument';
 import { db } from './db';
 import { creatorProfiles } from '../db/schema';
 
-export const MODEL = 'databricks-gpt-5-mini';
+const openai = createOpenAI({
+  apiKey: process.env.NEON_AI_GATEWAY_TOKEN,
+  baseURL: `${process.env.NEON_AI_GATEWAY_BASE_URL}/openai/v1`,
+});
 
-// Strong gatekeeper model on the gateway's chat-completions route (Mastra 1.47+
-// reads NEON_AI_GATEWAY_* from the environment).
-export const MODERATION_MODEL = 'neon/claude-sonnet-4-6';
+export const MODEL = 'gpt-5-mini';
+
+// Strong gatekeeper. Anthropic ids are no longer in the catalog; Mastra 1.47+
+// reads NEON_AI_GATEWAY_* for `neon/<id>`.
+export const MODERATION_MODEL = 'neon/gpt-5';
 
 const PROFILE_TEMPLATE = `# Creator Profile
 - **Preferred subjects**:
@@ -28,6 +33,7 @@ const PROFILE_TEMPLATE = `# Creator Profile
 // function tool, so per-user memory is kept out of the tool loop: the learned
 // profile is injected here as a system message instead.
 export const imageAgent = new Agent({
+  id: 'imagegen',
   name: 'imagegen',
   instructions:
     'You are an illustration agent for a creative team. When the user asks for a ' +
@@ -61,6 +67,7 @@ export const imageAgent = new Agent({
 // 502s this model with any function tool), so it returns the updated profile as
 // plain text which we persist to Postgres ourselves.
 export const profileAgent = new Agent({
+  id: 'profile',
   name: 'profile',
   instructions:
     'You maintain a concise profile of how a creator likes their AI-generated ' +
@@ -77,6 +84,7 @@ export const profileAgent = new Agent({
 // the profile agent) and registered on the `mastra` instance below so its runs
 // are traced by the same Mastra observability exporter as the other agents.
 export const moderationAgent = new Agent({
+  id: 'moderation',
   name: 'moderation',
   instructions:
     'You are a strict content-safety gatekeeper for an AI image generator. Users ' +
