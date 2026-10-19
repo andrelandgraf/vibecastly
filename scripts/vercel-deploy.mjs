@@ -3,7 +3,8 @@
 // deployments and files endpoints accept it.
 //
 // Usage: node scripts/vercel-deploy.mjs KEY=VALUE ...   (env for build and runtime)
-// Env: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID. Prints the deployment URL.
+// Env: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID, PR_NUMBER. Prints the deployment URL.
+// The deployment carries meta.factoryPr so the Software Factory finds it through Vercel, not a PR comment.
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
@@ -22,6 +23,7 @@ function requireEnv(name) {
 const token = requireEnv('VERCEL_TOKEN');
 const teamId = requireEnv('VERCEL_ORG_ID');
 const projectId = requireEnv('VERCEL_PROJECT_ID');
+const prNumber = requireEnv('PR_NUMBER');
 
 const env = Object.fromEntries(
   process.argv.slice(2).map((pair) => {
@@ -83,6 +85,7 @@ const deployment = await api(
     files,
     env,
     build: { env },
+    meta: { factoryPr: prNumber },
   }),
   { 'content-type': 'application/json' },
 );

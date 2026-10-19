@@ -75,6 +75,8 @@ jobs:
 
       - name: Deploy web preview to Vercel
         id: vercel
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           eval "$(node -e 'const {parseEnv}=require("node:util");const e=parseEnv(require("node:fs").readFileSync(".env.local","utf8"));for (const k of ["NEON_AUTH_BASE_URL","NEON_FUNCTION_IMAGEGEN_BASE_URL"]) { if (!e[k]) { console.error(k+" missing from .env.local"); process.exit(1) } console.log("export "+k+"="+JSON.stringify(e[k])) }')"
           NEON_AUTH_COOKIE_SECRET="$(openssl rand -base64 32)"
@@ -101,7 +103,7 @@ jobs:
         run: |
           body=$(printf '<!-- factory-preview -->\n### Preview environment\n\n| | |\n|---|---|\n| App | %s |\n| Neon branch | `%s` (`%s`) |\n| Workflow run | %s |\n' \
             "$URL" "$NEON_BRANCH" "$BRANCH_ID" "${{ github.run_id }}")
-          existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --jq '[.[] | select(.body | startswith("<!-- factory-preview -->")) | .id][0] // empty')
+          existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- factory-preview -->"))) | .id][0] // empty')
           if [ -n "$existing" ]; then
             gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -f body="$body" > /dev/null
           else
