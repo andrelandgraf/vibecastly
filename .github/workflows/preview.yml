@@ -85,6 +85,13 @@ jobs:
             NEXT_PUBLIC_AGENT_URL="$NEON_FUNCTION_IMAGEGEN_BASE_URL")
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
+      # Neon Auth on the branch inherits production's trusted domains; the preview URL is new for every deploy.
+      - name: Trust the preview domain in Neon Auth
+        env:
+          URL: ${{ steps.vercel.outputs.url }}
+          BRANCH_ID: ${{ steps.neon.outputs.branch_id }}
+        run: neon api "/projects/$NEON_PROJECT_ID/branches/$BRANCH_ID/auth/domains" -X POST -f domain="$URL" -f auth_provider=better_auth > /dev/null
+
       - name: Comment preview URL
         env:
           GH_TOKEN: ${{ github.token }}
