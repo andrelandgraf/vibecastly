@@ -11,6 +11,7 @@ import { and, count, desc, eq, gt, inArray } from 'drizzle-orm';
 import { db } from './lib/db';
 import { authenticate, corsHeaders } from './lib/auth';
 import { isMember } from './lib/org';
+import { isLiveName, sealInvitations, sealOrganizations, sealWorkspaceQuery } from './lib/live';
 import { putObject, deleteObject, getObjectBase64, presignGet } from './lib/storage';
 import { runImageAgent, moderatePrompt, type ModerationResult } from './lib/mastra';
 import { people, images, generationEvents } from './db/schema';
@@ -77,6 +78,24 @@ export default {
       return json(request, 401, { error: 'Unauthorized' });
     }
 
+    const url = new URL(request.url);
+    const path = url.pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/';
+    const method = request.method;
+
+    // Live queries scoped to the signed-in user rather than a workspace, so they
+    // work before the user has joined one.
+    if (method === 'POST' && (path === '/live/invitations' || path === '/live/organizations')) {
+      try {
+        const sealed =
+          path === '/live/organizations'
+            ? await sealOrganizations(identity.id)
+            : await sealInvitations(identity.id);
+        return json(request, 200, sealed);
+      } catch (error) {
+        return await errorResponse(request, error, `${method} ${path}`, identity.id);
+      }
+    }
+
     const orgId = request.headers.get('x-organization-id');
     if (!orgId) {
       return json(request, 400, { error: 'No active organization' });
@@ -91,11 +110,13 @@ export default {
       userEmail: identity.email,
       orgId,
     };
-    const url = new URL(request.url);
-    const path = url.pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/';
-    const method = request.method;
 
     try {
+      if (path.startsWith('/live/') && method === 'POST') {
+        const name = path.slice('/live/'.length);
+        if (!isLiveName(name)) return json(request, 404, { error: 'Not found' });
+        return json(request, 200, await sealWorkspaceQuery(name, ctx.orgId, ctx.userId));
+      }
       if (path === '/' && method === 'POST') return await handleGenerate(request, ctx);
       if (path === '/people' && method === 'GET') return await listPeople(request, ctx);
       if (path === '/people' && method === 'POST') return await createPerson(request, ctx);
@@ -108,19 +129,29 @@ export default {
         return await deleteImage(request, ctx, path.slice('/images/'.length));
       return json(request, 404, { error: 'Not found' });
     } catch (error) {
-      console.error(`[${method} ${path}] error:`, error);
-      Sentry.captureException(error, {
-        tags: { component: 'http', route: `${method} ${path}` },
-        user: { id: ctx.userId },
-        extra: { orgId: ctx.orgId },
-      });
-      await flushSentry();
-      return json(request, 500, {
-        error: error instanceof Error ? error.message : 'Internal error',
-      });
+      return await errorResponse(request, error, `${method} ${path}`, ctx.userId, ctx.orgId);
     }
   },
 };
+
+async function errorResponse(
+  request: Request,
+  error: unknown,
+  route: string,
+  userId: string,
+  orgId?: string,
+): Promise<Response> {
+  console.error(`[${route}] error:`, error);
+  Sentry.captureException(error, {
+    tags: { component: 'http', route },
+    user: { id: userId },
+    extra: orgId ? { orgId } : undefined,
+  });
+  await flushSentry();
+  return json(request, 500, {
+    error: error instanceof Error ? error.message : 'Internal error',
+  });
+}
 
 async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
   const { messages, personIds, referenceImage } = (await request.json()) as {

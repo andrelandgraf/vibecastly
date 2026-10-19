@@ -1,19 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Sparkles, Check, X, Loader2, Plus, Building2, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { authClient } from '@/lib/auth/client';
+import { sealInvitations, type LiveInvitationRow } from '@/lib/agent-client';
+import { Live } from '@/lib/live';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-
-type UserInvitation = {
-  id: string;
-  organizationId: string;
-  organizationName?: string;
-  role?: string;
-  status: string;
-};
 
 function slugify(name: string): string {
   const base = name
@@ -24,26 +18,24 @@ function slugify(name: string): string {
 }
 
 export function Onboarding({ userName }: { userName: string }) {
-  const [invites, setInvites] = useState<UserInvitation[]>([]);
+  return (
+    <Live seal={sealInvitations}>
+      {(invites) => <OnboardingView userName={userName} invites={invites ?? []} />}
+    </Live>
+  );
+}
+
+function OnboardingView({
+  userName,
+  invites,
+}: {
+  userName: string;
+  invites: readonly LiveInvitationRow[];
+}) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    try {
-      const { data } = await authClient.organization.listUserInvitations();
-      setInvites((Array.isArray(data) ? data : []).filter((i) => i.status === 'pending'));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const t = setInterval(() => void refresh(), 10000);
-    return () => clearInterval(t);
-  }, [refresh]);
-
-  async function accept(inv: UserInvitation) {
+  async function accept(inv: LiveInvitationRow) {
     setBusy(inv.id);
     try {
       const { error } = await authClient.organization.acceptInvitation({ invitationId: inv.id });
@@ -51,8 +43,8 @@ export function Onboarding({ userName }: { userName: string }) {
         toast.error(error.message ?? 'Could not accept invitation');
         return;
       }
-      await authClient.organization.setActive({ organizationId: inv.organizationId });
-      toast.success(`Joined ${inv.organizationName ?? 'workspace'}`);
+      await authClient.organization.setActive({ organizationId: inv.organization_id });
+      toast.success(`Joined ${inv.organization_name}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not accept invitation');
     } finally {
@@ -60,11 +52,10 @@ export function Onboarding({ userName }: { userName: string }) {
     }
   }
 
-  async function decline(inv: UserInvitation) {
+  async function decline(inv: LiveInvitationRow) {
     setBusy(inv.id);
     try {
       await authClient.organization.rejectInvitation({ invitationId: inv.id });
-      await refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not decline');
     } finally {
@@ -130,10 +121,8 @@ export function Onboarding({ userName }: { userName: string }) {
                     <Building2 className="size-4" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">
-                      {inv.organizationName ?? 'A workspace'}
-                    </p>
-                    <p className="text-muted-foreground text-xs">invited as {inv.role ?? 'member'}</p>
+                    <p className="truncate text-sm font-medium">{inv.organization_name}</p>
+                    <p className="text-muted-foreground text-xs">invited as {inv.role}</p>
                   </div>
                   <Button size="sm" disabled={busy === inv.id} onClick={() => accept(inv)}>
                     {busy === inv.id ? (

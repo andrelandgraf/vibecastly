@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Users, Mail, X, Loader2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { authClient } from '@/lib/auth/client';
+import { sealWorkspaceQuery } from '@/lib/agent-client';
+import { Live } from '@/lib/live';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,37 +27,15 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 
-type Member = {
-  id: string;
-  role: string;
-  user?: { name?: string | null; email?: string | null; image?: string | null };
-};
-type Invitation = { id: string; email: string; role: string; status: string };
-
-export function TeamDialog() {
+export function TeamDialog({ orgId }: { orgId: string }) {
   const { data: activeOrg } = authClient.useActiveOrganization();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('member');
   const [busy, setBusy] = useState(false);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [invites, setInvites] = useState<Invitation[]>([]);
 
-  const refresh = useCallback(async () => {
-    try {
-      const { data } = await authClient.organization.getFullOrganization();
-      const m = data?.members;
-      const inv = data?.invitations;
-      setMembers(Array.isArray(m) ? m : []);
-      setInvites(Array.isArray(inv) ? inv.filter((i) => i.status === 'pending') : []);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    if (open) void refresh();
-  }, [open, activeOrg?.id, refresh]);
+  const sealMembers = useCallback(() => sealWorkspaceQuery('team-members', orgId), [orgId]);
+  const sealInvites = useCallback(() => sealWorkspaceQuery('team-invitations', orgId), [orgId]);
 
   async function invite() {
     if (!email.trim()) return;
@@ -71,7 +51,6 @@ export function TeamDialog() {
       }
       toast.success(`Invited ${email.trim()}`);
       setEmail('');
-      await refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not send invitation');
     } finally {
@@ -83,7 +62,6 @@ export function TeamDialog() {
     try {
       await authClient.organization.cancelInvitation({ invitationId: id });
       toast.success('Invitation cancelled');
-      await refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not cancel');
     }
@@ -137,7 +115,10 @@ export function TeamDialog() {
           </div>
         </div>
 
-        {invites.length > 0 && (
+        <Live seal={sealInvites}>
+          {(invites) =>
+            invites &&
+            invites.length > 0 && (
           <div className="space-y-1.5">
             <p className="text-muted-foreground text-xs font-medium">Pending invitations</p>
             {invites.map((inv) => (
@@ -162,29 +143,35 @@ export function TeamDialog() {
               </div>
             ))}
           </div>
-        )}
+            )
+          }
+        </Live>
 
-        <div className="space-y-1.5">
-          <p className="text-muted-foreground text-xs font-medium">
-            Members ({members.length})
-          </p>
-          {members.map((m) => (
-            <div key={m.id} className="flex items-center gap-2.5 px-1 py-1">
-              <Avatar className="size-7">
-                <AvatarImage src={m.user?.image ?? undefined} alt={m.user?.name ?? ''} />
-                <AvatarFallback className="text-xs">
-                  {(m.user?.name ?? m.user?.email ?? '?').slice(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm">{m.user?.name ?? m.user?.email ?? 'Member'}</p>
-              </div>
-              <Badge variant={m.role === 'owner' ? 'default' : 'secondary'} className="text-xs">
-                {m.role}
-              </Badge>
+        <Live seal={sealMembers}>
+          {(members) => (
+            <div className="space-y-1.5">
+              <p className="text-muted-foreground text-xs font-medium">
+                Members{members ? ` (${members.length})` : ''}
+              </p>
+              {members?.map((m) => (
+                <div key={m.id} className="flex items-center gap-2.5 px-1 py-1">
+                  <Avatar className="size-7">
+                    <AvatarImage src={m.image ?? undefined} alt={m.name} />
+                    <AvatarFallback className="text-xs">
+                      {(m.name || m.email).slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm">{m.name || m.email}</p>
+                  </div>
+                  <Badge variant={m.role === 'owner' ? 'default' : 'secondary'} className="text-xs">
+                    {m.role}
+                  </Badge>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </Live>
       </DialogContent>
     </Dialog>
   );

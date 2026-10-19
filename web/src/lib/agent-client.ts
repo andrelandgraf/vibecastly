@@ -1,5 +1,7 @@
 'use client';
 
+import type { SealedLiveQuery } from '@neon/realtime/client';
+
 const AGENT_URL = (process.env.NEXT_PUBLIC_AGENT_URL ?? '').replace(/\/+$/, '');
 
 export const IMAGE_LIMIT_PER_ORG = 10;
@@ -48,6 +50,12 @@ export function getActiveOrg(): string | null {
 
 let cached: { token: string; expiresAt: number } | null = null;
 
+// The cache outlives client-side navigation, so the next account in this tab
+// would otherwise reuse the previous account's token.
+export function clearToken(): void {
+  cached = null;
+}
+
 export async function getToken(force = false): Promise<string> {
   const now = Date.now();
   if (!force && cached && cached.expiresAt > now) {
@@ -55,7 +63,7 @@ export async function getToken(force = false): Promise<string> {
   }
   const res = await fetch('/api/auth/token', { credentials: 'include' });
   if (!res.ok) {
-    throw new Error('Not authenticated');
+    throw new AgentError('Not authenticated', 'not_authenticated', 'failed', res.status);
   }
   const data = (await res.json()) as { token?: string };
   if (!data.token) {
@@ -73,17 +81,29 @@ export type AgentErrorKind = 'blocked' | 'rate_limited' | 'failed';
 export class AgentError extends Error {
   readonly code: string;
   readonly kind: AgentErrorKind;
-  constructor(message: string, code: string, kind: AgentErrorKind) {
+  readonly status: number | undefined;
+  constructor(message: string, code: string, kind: AgentErrorKind, status?: number) {
     super(message);
     this.name = 'AgentError';
     this.code = code;
     this.kind = kind;
+    this.status = status;
   }
 }
 
-async function request(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
-  if (!AGENT_URL) throw new AgentError('The image service is not configured.', 'not_configured', 'failed');
+function request(path: string, init: RequestInit = {}): Promise<Response> {
   if (!activeOrgId) throw new AgentError('Select a workspace first.', 'no_org', 'failed');
+  return send(path, init, activeOrgId);
+}
+
+// `orgId: null` sends no workspace, for routes scoped to the signed-in user.
+async function send(
+  path: string,
+  init: RequestInit,
+  orgId: string | null,
+  retry = true,
+): Promise<Response> {
+  if (!AGENT_URL) throw new AgentError('The image service is not configured.', 'not_configured', 'failed');
   const token = await getToken();
   let res: Response;
   try {
@@ -92,7 +112,7 @@ async function request(path: string, init: RequestInit = {}, retry = true): Prom
       headers: {
         ...(init.headers ?? {}),
         authorization: `Bearer ${token}`,
-        'x-organization-id': activeOrgId,
+        ...(orgId ? { 'x-organization-id': orgId } : {}),
       },
     });
   } catch {
@@ -104,7 +124,7 @@ async function request(path: string, init: RequestInit = {}, retry = true): Prom
   }
   if (res.status === 401 && retry) {
     cached = null;
-    return request(path, init, false);
+    return send(path, init, orgId, false);
   }
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as
@@ -114,7 +134,7 @@ async function request(path: string, init: RequestInit = {}, retry = true): Prom
     const code = body?.error ?? `http_${res.status}`;
     const kind: AgentErrorKind =
       res.status === 422 ? 'blocked' : res.status === 429 ? 'rate_limited' : 'failed';
-    throw new AgentError(message, code, kind);
+    throw new AgentError(message, code, kind, res.status);
   }
   return res;
 }
@@ -195,4 +215,49 @@ export async function createPerson(
 
 export async function deletePerson(id: string): Promise<void> {
   await request(`/people/${id}`, { method: 'DELETE' });
+}
+
+export type LiveImageRow = { id: string; prompt: string };
+export type LivePersonRow = { id: string; name: string };
+export type LiveMemberRow = {
+  id: string;
+  role: string;
+  name: string;
+  email: string;
+  image: string | null;
+};
+export type LiveTeamInvitationRow = { id: string; email: string; role: string };
+export type LiveInvitationRow = {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  role: string;
+};
+export type LiveOrganizationRow = { id: string; name: string };
+
+type WorkspaceLiveRows = {
+  images: LiveImageRow;
+  people: LivePersonRow;
+  'team-members': LiveMemberRow;
+  'team-invitations': LiveTeamInvitationRow;
+};
+
+async function seal<Row>(path: string, orgId: string | null): Promise<SealedLiveQuery<Row>> {
+  const res = await send(path, { method: 'POST' }, orgId);
+  return (await res.json()) as SealedLiveQuery<Row>;
+}
+
+export function sealWorkspaceQuery<Name extends keyof WorkspaceLiveRows>(
+  name: Name,
+  orgId: string,
+): Promise<SealedLiveQuery<WorkspaceLiveRows[Name]>> {
+  return seal(`/live/${name}`, orgId);
+}
+
+export function sealInvitations(): Promise<SealedLiveQuery<LiveInvitationRow>> {
+  return seal('/live/invitations', null);
+}
+
+export function sealOrganizations(): Promise<SealedLiveQuery<LiveOrganizationRow>> {
+  return seal('/live/organizations', null);
 }
