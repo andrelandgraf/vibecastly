@@ -10,13 +10,16 @@ import {
   setActiveOrg,
   listImages,
   listPeople,
+  listAddons,
   IMAGE_LIMIT_PER_ORG,
   hasUnlimitedImages,
   AgentError,
+  type AddonRecord,
   type ImageRecord,
   type PersonRecord,
 } from '@/lib/agent-client';
 import { PeopleSidebar } from './people-sidebar';
+import { AddonsPanel } from './addons-panel';
 import { MentionComposer } from './mention-composer';
 import { ImageGallery } from './image-gallery';
 import { OrgSwitcher } from './org-switcher';
@@ -54,6 +57,7 @@ export function AppShell({
   const resolvingWorkspace = orgsPending || (hasOrgs && !orgId);
 
   const [people, setPeople] = useState<PersonRecord[]>([]);
+  const [addons, setAddons] = useState<AddonRecord[]>([]);
   const [images, setImages] = useState<ImageRecord[]>([]);
   const [loadingImages, setLoadingImages] = useState(true);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -63,6 +67,14 @@ export function AppShell({
       setPeople(await listPeople());
     } catch {
       setPeople([]);
+    }
+  }, []);
+
+  const refreshAddons = useCallback(async () => {
+    try {
+      setAddons(await listAddons());
+    } catch {
+      setAddons([]);
     }
   }, []);
 
@@ -97,18 +109,20 @@ export function AppShell({
     if (orgId) {
       setLoadingImages(true);
       void refreshPeople();
+      void refreshAddons();
       void refreshImages();
     } else {
       setPeople([]);
+      setAddons([]);
       setImages([]);
       setLoadingImages(false);
     }
-  }, [orgId, refreshPeople, refreshImages]);
+  }, [orgId, refreshPeople, refreshAddons, refreshImages]);
 
   // Fire-and-forget generation: each call is an independent job, so multiple
   // can run at once without blocking the composer.
   const runJob = useCallback(
-    async (prompt: string, personIds: string[], referenceImage: File | null) => {
+    async (prompt: string, personIds: string[], addonIds: string[], referenceImage: File | null) => {
       if (!agentConfigured()) {
         toast.error('NEXT_PUBLIC_AGENT_URL is not configured');
         return;
@@ -118,9 +132,9 @@ export function AppShell({
         return;
       }
       const id = crypto.randomUUID();
-      setJobs((j) => [...j, { id, prompt, personIds, referenceImage, status: 'running' }]);
+      setJobs((j) => [...j, { id, prompt, personIds, addonIds, referenceImage, status: 'running' }]);
       try {
-        await generate(prompt, personIds, referenceImage);
+        await generate(prompt, personIds, addonIds, referenceImage);
         setJobs((j) => j.filter((x) => x.id !== id));
         await refreshImages();
       } catch (err) {
@@ -135,15 +149,15 @@ export function AppShell({
     [orgId, refreshImages],
   );
 
-  function personIdsFromPrompt(prompt: string): string[] {
-    return people
-      .filter((p) => new RegExp(`@${escapeRegex(p.name)}(?![\\w])`).test(prompt))
-      .map((p) => p.id);
+  function idsFromPrompt(prompt: string, records: { id: string; name: string }[]): string[] {
+    return records
+      .filter((r) => new RegExp(`@${escapeRegex(r.name)}(?![\\w])`).test(prompt))
+      .map((r) => r.id);
   }
 
   function handleRetry(job: Job) {
     setJobs((j) => j.filter((x) => x.id !== job.id));
-    void runJob(job.prompt, job.personIds, job.referenceImage ?? null);
+    void runJob(job.prompt, job.personIds, job.addonIds, job.referenceImage ?? null);
   }
 
   function dismissJob(id: string) {
@@ -190,22 +204,26 @@ export function AppShell({
         )
       ) : (
         <div className="flex flex-1 flex-col lg:flex-row">
-          <PeopleSidebar people={people} onChanged={refreshPeople} />
+          <aside className="flex w-full flex-col border-b lg:w-72 lg:border-r lg:border-b-0">
+            <PeopleSidebar people={people} onChanged={refreshPeople} />
+            <AddonsPanel addons={addons} onChanged={refreshAddons} />
+          </aside>
 
           <main className="flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
               <div className="mb-8">
                 <h1 className="font-display text-2xl font-semibold">Create an image</h1>
                 <p className="text-muted-foreground mb-4 text-sm">
-                  Describe what you want. Tag people with{' '}
-                  <span className="text-primary font-medium">@</span> to use their photos as a
+                  Describe what you want. Tag people and addons with{' '}
+                  <span className="text-primary font-medium">@</span> to use their images as a
                   starting point. Fire off as many as you like — they run in the background.
                 </p>
                 <MentionComposer
                   people={people}
+                  addons={addons}
                   status="ready"
-                  onSubmit={(text, personIds, referenceImage) => {
-                    void runJob(text, personIds, referenceImage);
+                  onSubmit={(text, personIds, addonIds, referenceImage) => {
+                    void runJob(text, personIds, addonIds, referenceImage);
                   }}
                 />
               </div>
@@ -233,7 +251,9 @@ export function AppShell({
                 images={images}
                 loading={loadingImages}
                 onChanged={refreshImages}
-                onRegenerate={(prompt) => void runJob(prompt, personIdsFromPrompt(prompt), null)}
+                onRegenerate={(prompt) =>
+                  void runJob(prompt, idsFromPrompt(prompt, people), idsFromPrompt(prompt, addons), null)
+                }
               />
             </div>
           </main>

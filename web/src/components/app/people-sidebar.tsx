@@ -79,7 +79,7 @@ export function PeopleSidebar({
   }
 
   return (
-    <aside className="flex w-full flex-col border-b lg:w-72 lg:border-r lg:border-b-0">
+    <section className="flex flex-col">
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
           <Users className="size-4 text-primary" />
@@ -192,6 +192,6 @@ export function PeopleSidebar({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </aside>
+    </section>
   );
 }

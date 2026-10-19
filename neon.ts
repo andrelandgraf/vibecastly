@@ -8,6 +8,7 @@ export default defineConfig({
   buckets: {
     people: {},
     generated: {},
+    addons: {},
   },
   functions: {
     imagegen: {

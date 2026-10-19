@@ -32,6 +32,17 @@ export type PersonRecord = {
   photoUrl: string;
 };
 
+export type AddonKind = 'item' | 'background';
+
+export type AddonRecord = {
+  id: string;
+  name: string;
+  kind: AddonKind;
+  createdByName: string;
+  createdAt: string;
+  imageUrl: string;
+};
+
 export function agentConfigured(): boolean {
   return AGENT_URL.length > 0;
 }
@@ -133,6 +144,7 @@ async function fileToBase64(file: File): Promise<string> {
 export async function generate(
   prompt: string,
   personIds: string[],
+  addonIds: string[],
   referenceImage?: ReferenceImageInput | File | null,
 ): Promise<void> {
   let referencePayload: ReferenceImageInput | null = null;
@@ -150,6 +162,7 @@ export async function generate(
     body: JSON.stringify({
       messages: [{ id: crypto.randomUUID(), role: 'user', parts: [{ type: 'text', text: prompt }] }],
       personIds,
+      addonIds,
       ...(referencePayload ? { referenceImage: referencePayload } : {}),
     }),
   });
@@ -195,4 +208,27 @@ export async function createPerson(
 
 export async function deletePerson(id: string): Promise<void> {
   await request(`/people/${id}`, { method: 'DELETE' });
+}
+
+export async function listAddons(): Promise<AddonRecord[]> {
+  const res = await request('/addons');
+  return ((await res.json()) as { addons: AddonRecord[] }).addons;
+}
+
+export async function createAddon(
+  name: string,
+  kind: AddonKind,
+  imageBase64: string,
+  contentType: string,
+): Promise<AddonRecord> {
+  const res = await request('/addons', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, kind, imageBase64, contentType }),
+  });
+  return (await res.json()) as AddonRecord;
+}
+
+export async function deleteAddon(id: string): Promise<void> {
+  await request(`/addons/${id}`, { method: 'DELETE' });
 }
