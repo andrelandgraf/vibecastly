@@ -20,7 +20,7 @@ jobs:
       NEON_BRANCH: preview/pr-${{ github.event.pull_request.number }}
     steps:
       - name: Install Neon CLI
-        run: npm install -g neon@8.4.3
+        run: npm install -g neon@8.8.0
 
       - name: Delete Neon preview branch
         run: |
