@@ -36,15 +36,23 @@ type SealState<Row> = { seal: Seal<Row>; query: SealedLiveQuery<Row> | null };
 // subscription; callers keep it stable with useCallback otherwise.
 function useSealedQuery<Row>(seal: Seal<Row>) {
   const [state, setState] = useState<SealState<Row> | null>(null);
+  const current = useRef(seal);
   const reported = useRef<Seal<Row> | null>(null);
+  useEffect(() => {
+    current.current = seal;
+  }, [seal]);
 
+  // A renewal for a previous scope can still settle after the switch.
   const fail = useCallback(
     (error: unknown) => {
+      if (current.current !== seal) return;
       if (reported.current !== seal) {
         reported.current = seal;
         reportLiveError(error);
       }
-      if (isPermanent(error)) setState({ seal, query: null });
+      if (isPermanent(error)) {
+        setState((s) => (s?.seal === seal ? { seal, query: null } : s));
+      }
     },
     [seal],
   );

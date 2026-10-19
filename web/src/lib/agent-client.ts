@@ -57,7 +57,7 @@ export async function getToken(force = false): Promise<string> {
   }
   const res = await fetch('/api/auth/token', { credentials: 'include' });
   if (!res.ok) {
-    throw new Error('Not authenticated');
+    throw new AgentError('Not authenticated', 'not_authenticated', 'failed', res.status);
   }
   const data = (await res.json()) as { token?: string };
   if (!data.token) {
