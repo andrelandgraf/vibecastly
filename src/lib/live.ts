@@ -54,15 +54,18 @@ export type InvitationRow = {
   role: string;
 };
 
-export function sealInvitations(email: string): Promise<SealedLiveQuery<InvitationRow>> {
+// Matches Better Auth's listUserInvitations: only a verified email sees the
+// invitations sent to it, because accepting needs nothing but the invitation id.
+export function sealInvitations(userId: string): Promise<SealedLiveQuery<InvitationRow>> {
   return realtime.seal({
     query: rawSql<InvitationRow>(
       `select i.id, i."organizationId"::text as organization_id, o.name as organization_name, i.role
-        from neon_auth.invitation i
+        from neon_auth.user u
+        join neon_auth.invitation i on lower(i.email) = lower(u.email)
         join neon_auth.organization o on o.id = i."organizationId"
-        where lower(i.email) = lower($1) and i.status = 'pending'
+        where u.id::text = $1 and u."emailVerified" and i.status = 'pending'
         order by i."createdAt", i.id`,
-      [email],
+      [userId],
     ),
   });
 }

@@ -50,6 +50,12 @@ export function getActiveOrg(): string | null {
 
 let cached: { token: string; expiresAt: number } | null = null;
 
+// The cache outlives client-side navigation, so the next account in this tab
+// would otherwise reuse the previous account's token.
+export function clearToken(): void {
+  cached = null;
+}
+
 export async function getToken(force = false): Promise<string> {
   const now = Date.now();
   if (!force && cached && cached.expiresAt > now) {

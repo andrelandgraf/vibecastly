@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Settings, LogOut, ChevronDown } from 'lucide-react';
 import { authClient } from '@/lib/auth/client';
+import { clearToken } from '@/lib/agent-client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -38,6 +39,7 @@ export function AccountMenu({
 
   async function handleSignOut() {
     await authClient.signOut();
+    clearToken();
     router.push('/login');
     router.refresh();
   }

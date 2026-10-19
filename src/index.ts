@@ -86,11 +86,11 @@ export default {
     // work before the user has joined one.
     if (method === 'POST' && (path === '/live/invitations' || path === '/live/organizations')) {
       try {
-        if (path === '/live/organizations') {
-          return json(request, 200, await sealOrganizations(identity.id));
-        }
-        if (!identity.email) return json(request, 400, { error: 'Token has no email' });
-        return json(request, 200, await sealInvitations(identity.email));
+        const sealed =
+          path === '/live/organizations'
+            ? await sealOrganizations(identity.id)
+            : await sealInvitations(identity.id);
+        return json(request, 200, sealed);
       } catch (error) {
         return await errorResponse(request, error, `${method} ${path}`, identity.id);
       }
