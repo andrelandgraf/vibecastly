@@ -75,11 +75,13 @@ export type AgentErrorKind = 'blocked' | 'rate_limited' | 'failed';
 export class AgentError extends Error {
   readonly code: string;
   readonly kind: AgentErrorKind;
-  constructor(message: string, code: string, kind: AgentErrorKind) {
+  readonly status: number | undefined;
+  constructor(message: string, code: string, kind: AgentErrorKind, status?: number) {
     super(message);
     this.name = 'AgentError';
     this.code = code;
     this.kind = kind;
+    this.status = status;
   }
 }
 
@@ -126,7 +128,7 @@ async function send(
     const code = body?.error ?? `http_${res.status}`;
     const kind: AgentErrorKind =
       res.status === 422 ? 'blocked' : res.status === 429 ? 'rate_limited' : 'failed';
-    throw new AgentError(message, code, kind);
+    throw new AgentError(message, code, kind, res.status);
   }
   return res;
 }

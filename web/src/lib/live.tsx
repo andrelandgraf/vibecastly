@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import * as Sentry from '@sentry/nextjs';
 import { toast } from 'sonner';
 import { createRealtimeClient, type SealedLiveQuery } from '@neon/realtime/client';
 import { RealtimeProvider, useLiveQuery } from '@neon/realtime-react';
+import { AgentError } from '@/lib/agent-client';
 
 export type Seal<Row> = () => Promise<SealedLiveQuery<Row>>;
 
@@ -23,43 +24,88 @@ function reportLiveError(error: unknown) {
   toast.error('Live updates stopped. Reload the page to reconnect.', { id: 'live-error' });
 }
 
+// The SDK retries a failed renewal every second until it succeeds, so only an
+// answer that cannot change on retry ends the subscription.
+function isPermanent(error: unknown): boolean {
+  return error instanceof AgentError && [401, 403, 404].includes(error.status ?? 0);
+}
+
+type SealState<Row> = { seal: Seal<Row>; query: SealedLiveQuery<Row> | null };
+
 // A new `seal` function, such as one bound to another workspace, starts a new
 // subscription; callers keep it stable with useCallback otherwise.
-function useSealedQuery<Row>(seal: Seal<Row>): SealedLiveQuery<Row> | null {
-  const [sealed, setSealed] = useState<{ seal: Seal<Row>; query: SealedLiveQuery<Row> } | null>(
-    null,
+function useSealedQuery<Row>(seal: Seal<Row>) {
+  const [state, setState] = useState<SealState<Row> | null>(null);
+  const reported = useRef<Seal<Row> | null>(null);
+
+  const fail = useCallback(
+    (error: unknown) => {
+      if (reported.current !== seal) {
+        reported.current = seal;
+        reportLiveError(error);
+      }
+      if (isPermanent(error)) setState({ seal, query: null });
+    },
+    [seal],
   );
+
   useEffect(() => {
     let cancelled = false;
     seal().then(
       (query) => {
-        if (!cancelled) setSealed({ seal, query });
+        if (!cancelled) setState({ seal, query });
       },
       (error: unknown) => {
-        if (!cancelled) reportLiveError(error);
+        if (!cancelled) fail(error);
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [seal]);
-  return sealed?.seal === seal ? sealed.query : null;
+  }, [seal, fail]);
+
+  const renew = useCallback(async () => {
+    try {
+      return await seal();
+    } catch (error) {
+      fail(error);
+      throw error;
+    }
+  }, [seal, fail]);
+
+  return { query: state?.seal === seal ? state.query : null, renew, fail };
 }
 
-function Subscribed<Row>({
+function useLatest<T>(value: T) {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref;
+}
+
+function Subscriber<Row>({
   query,
-  seal,
-  children,
+  renew,
+  fail,
+  onRows,
 }: {
   query: SealedLiveQuery<Row>;
-  seal: Seal<Row>;
-  children: (rows: readonly Row[] | undefined) => ReactNode;
+  renew: Seal<Row>;
+  fail: (error: unknown) => void;
+  onRows: (rows: readonly Row[]) => void;
 }) {
-  const { data, error } = useLiveQuery(query, { refreshQuery: seal });
+  const { data, error } = useLiveQuery(query, { refreshQuery: renew });
+  // Next 15's bundled React has no useEffectEvent; only new rows, not a new
+  // callback, may fire it.
+  const latest = useLatest(onRows);
   useEffect(() => {
-    if (error) reportLiveError(error);
-  }, [error]);
-  return children(data);
+    if (data) latest.current(data);
+  }, [data, latest]);
+  useEffect(() => {
+    if (error) fail(error);
+  }, [error, fail]);
+  return null;
 }
 
 /** Renders the live rows of a sealed query; `undefined` until the first result. */
@@ -70,26 +116,17 @@ export function Live<Row>({
   seal: Seal<Row>;
   children: (rows: readonly Row[] | undefined) => ReactNode;
 }) {
-  const query = useSealedQuery(seal);
-  if (!query) return children(undefined);
+  const { query, renew, fail } = useSealedQuery(seal);
+  const [rows, setRows] = useState<{ seal: Seal<Row>; rows: readonly Row[] } | null>(null);
+  const onRows = useCallback((next: readonly Row[]) => setRows({ seal, rows: next }), [seal]);
+  // `children` stays at one position in the tree, so resolving the query or
+  // receiving rows never remounts it.
   return (
-    <Subscribed query={query} seal={seal}>
-      {children}
-    </Subscribed>
+    <>
+      {query && <Subscriber query={query} renew={renew} fail={fail} onRows={onRows} />}
+      {children(rows?.seal === seal ? rows.rows : undefined)}
+    </>
   );
-}
-
-function OnRows<Row>({ rows, onChange }: { rows: readonly Row[]; onChange: () => void }) {
-  // Next 15's bundled React has no useEffectEvent; a new `onChange` must not
-  // re-run the effect, only new rows should.
-  const latest = useRef(onChange);
-  useEffect(() => {
-    latest.current = onChange;
-  });
-  useEffect(() => {
-    latest.current();
-  }, [rows]);
-  return null;
 }
 
 /**
@@ -97,7 +134,6 @@ function OnRows<Row>({ rows, onChange }: { rows: readonly Row[]; onChange: () =>
  * needs a regular fetch, such as presigned image URLs.
  */
 export function LiveSignal<Row>({ seal, onChange }: { seal: Seal<Row>; onChange: () => void }) {
-  return (
-    <Live seal={seal}>{(rows) => rows && <OnRows rows={rows} onChange={onChange} />}</Live>
-  );
+  const { query, renew, fail } = useSealedQuery(seal);
+  return query && <Subscriber query={query} renew={renew} fail={fail} onRows={onChange} />;
 }

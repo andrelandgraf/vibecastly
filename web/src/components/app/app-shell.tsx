@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { authClient } from '@/lib/auth/client';
@@ -86,20 +86,23 @@ export function AppShell({
   const [loadingImages, setLoadingImages] = useState(true);
   const [jobs, setJobs] = useState<Job[]>([]);
 
+  // Live changes and workspace switches can overlap refetches; only the newest
+  // request may commit, so a slow response never restores older rows or
+  // another workspace's rows.
+  const peopleRequest = useRef(0);
+  const imagesRequest = useRef(0);
+
   const refreshPeople = useCallback(async () => {
-    try {
-      setPeople(await listPeople());
-    } catch {
-      setPeople([]);
-    }
+    const request = ++peopleRequest.current;
+    const next = await listPeople().catch((): PersonRecord[] => []);
+    if (request === peopleRequest.current) setPeople(next);
   }, []);
 
   const refreshImages = useCallback(async () => {
-    try {
-      setImages(await listImages());
-    } catch {
-      setImages([]);
-    } finally {
+    const request = ++imagesRequest.current;
+    const next = await listImages().catch((): ImageRecord[] => []);
+    if (request === imagesRequest.current) {
+      setImages(next);
       setLoadingImages(false);
     }
   }, []);
@@ -134,6 +137,8 @@ export function AppShell({
       void refreshPeople();
       void refreshImages();
     } else {
+      peopleRequest.current++;
+      imagesRequest.current++;
       setPeople([]);
       setImages([]);
       setLoadingImages(false);
