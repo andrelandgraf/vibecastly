@@ -1,0 +1,110 @@
+name: Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [demo/main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+  NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+  NEON_BRANCH: preview/pr-${{ github.event.pull_request.number }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  preview:
+    name: Preview environment
+    # Secrets never reach pull requests from forks.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Neon and Vercel CLIs
+        run: npm install -g neon@8.4.3 vercel@56.3.2
+
+      - name: Create Neon preview branch
+        id: neon
+        run: |
+          existing=$(neon branches list --project-id "$NEON_PROJECT_ID" --output json | jq -r --arg name "$NEON_BRANCH" '.[] | select(.name == $name) | .id')
+          neon checkout "$NEON_BRANCH" --create --project-id "$NEON_PROJECT_ID"
+          node -e 'const {parseEnv}=require("node:util");for (const v of Object.values(parseEnv(require("node:fs").readFileSync(".env.local","utf8")))) if (v) console.log("::add-mask::"+v)'
+          branch_id=$(neon branches list --project-id "$NEON_PROJECT_ID" --output json | jq -r --arg name "$NEON_BRANCH" '.[] | select(.name == $name) | .id')
+          default_id=$(neon branches list --project-id "$NEON_PROJECT_ID" --output json | jq -r '.[] | select(.default) | .id')
+          if [ -z "$branch_id" ] || [ "$branch_id" = "$default_id" ]; then
+            echo "::error::Preview branch resolved to '$branch_id', which is empty or the production branch."
+            exit 1
+          fi
+          echo "branch_id=$branch_id" >> "$GITHUB_OUTPUT"
+          echo "existed=$([ -n "$existing" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Run Drizzle migration on the preview branch
+        run: npx drizzle-kit migrate
+
+      - name: Post schema diff
+        uses: neondatabase/schema-diff-action@80cfa8521628e890015b60f5291a7738926617dc # v1.0.1
+        with:
+          project_id: ${{ env.NEON_PROJECT_ID }}
+          compare_branch: ${{ env.NEON_BRANCH }}
+          base_branch: main
+          api_key: ${{ env.NEON_API_KEY }}
+
+      # A new branch gets the PR's Functions when checkout applies neon.ts; an existing one does not.
+      - name: Deploy Functions to the preview branch
+        if: steps.neon.outputs.existed == 'true'
+        run: neon deploy --branch "$NEON_BRANCH" --project-id "$NEON_PROJECT_ID" --yes
+
+      - name: Deploy web preview to Vercel
+        id: vercel
+        run: |
+          eval "$(node -e 'const {parseEnv}=require("node:util");const e=parseEnv(require("node:fs").readFileSync(".env.local","utf8"));for (const k of ["NEON_AUTH_BASE_URL","NEON_FUNCTION_IMAGEGEN_BASE_URL"]) { if (!e[k]) { console.error(k+" missing from .env.local"); process.exit(1) } console.log("export "+k+"="+JSON.stringify(e[k])) }')"
+          export NEXT_PUBLIC_AGENT_URL="$NEON_FUNCTION_IMAGEGEN_BASE_URL"
+          NEON_AUTH_COOKIE_SECRET="$(openssl rand -base64 32)"
+          echo "::add-mask::$NEON_AUTH_COOKIE_SECRET"
+          export NEON_AUTH_COOKIE_SECRET
+          vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
+          vercel build --token "$VERCEL_TOKEN"
+          url=$(vercel deploy --prebuilt --token "$VERCEL_TOKEN" \
+            -e NEON_AUTH_BASE_URL="$NEON_AUTH_BASE_URL" \
+            -e NEON_AUTH_COOKIE_SECRET="$NEON_AUTH_COOKIE_SECRET" \
+            -e NEXT_PUBLIC_AGENT_URL="$NEXT_PUBLIC_AGENT_URL")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Comment preview URL
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          URL: ${{ steps.vercel.outputs.url }}
+          BRANCH_ID: ${{ steps.neon.outputs.branch_id }}
+        run: |
+          body=$(printf '<!-- factory-preview -->\n### Preview environment\n\n| | |\n|---|---|\n| App | %s |\n| Neon branch | `%s` (`%s`) |\n| Workflow run | %s |\n' \
+            "$URL" "$NEON_BRANCH" "$BRANCH_ID" "${{ github.run_id }}")
+          existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --jq '[.[] | select(.body | startswith("<!-- factory-preview -->")) | .id][0] // empty')
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -f body="$body" > /dev/null
+          else
+            gh pr comment "$PR" --body "$body"
+          fi
