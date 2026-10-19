@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { authClient } from '@/lib/auth/client';
+import { LiveSignal } from '@/lib/live';
 import {
   generate,
   agentConfigured,
@@ -12,6 +13,8 @@ import {
   listPeople,
   IMAGE_LIMIT_PER_ORG,
   hasUnlimitedImages,
+  sealOrganizations,
+  sealWorkspaceQuery,
   AgentError,
   type ImageRecord,
   type PersonRecord,
@@ -32,6 +35,27 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Gallery and people rows carry presigned URLs, which only the list endpoints
+// mint, so a change refetches the list instead of rendering the live rows.
+function WorkspaceLive({
+  orgId,
+  onImages,
+  onPeople,
+}: {
+  orgId: string;
+  onImages: () => void;
+  onPeople: () => void;
+}) {
+  const sealImages = useCallback(() => sealWorkspaceQuery('images', orgId), [orgId]);
+  const sealPeople = useCallback(() => sealWorkspaceQuery('people', orgId), [orgId]);
+  return (
+    <>
+      <LiveSignal seal={sealImages} onChange={onImages} />
+      <LiveSignal seal={sealPeople} onChange={onPeople} />
+    </>
+  );
+}
+
 export function AppShell({
   userName,
   userEmail,
@@ -41,8 +65,12 @@ export function AppShell({
   userEmail: string;
   userImage?: string | null;
 }) {
-  const { data: orgs, isPending: orgsPending } = authClient.useListOrganizations();
-  const { data: activeOrg } = authClient.useActiveOrganization();
+  const {
+    data: orgs,
+    isPending: orgsPending,
+    refetch: refetchOrgs,
+  } = authClient.useListOrganizations();
+  const { data: activeOrg, refetch: refetchActiveOrg } = authClient.useActiveOrganization();
   const orgId = activeOrg?.id ?? null;
   const hasOrgs = Array.isArray(orgs) && orgs.length > 0;
 
@@ -75,6 +103,13 @@ export function AppShell({
       setLoadingImages(false);
     }
   }, []);
+
+  // Joining, leaving, or renaming a workspace changes these rows; Better Auth
+  // owns the list itself, so refetch it.
+  const refreshOrgs = useCallback(() => {
+    void refetchOrgs();
+    void refetchActiveOrg();
+  }, [refetchOrgs, refetchActiveOrg]);
 
   // When no workspace is active yet, default to the last one the user selected
   // (remembered in localStorage), falling back to the first in the list.
@@ -156,6 +191,10 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen flex-col">
+      <LiveSignal seal={sealOrganizations} onChange={refreshOrgs} />
+      {orgId && (
+        <WorkspaceLive orgId={orgId} onImages={refreshImages} onPeople={refreshPeople} />
+      )}
       <header className="bg-background/80 sticky top-0 z-30 flex items-center justify-between gap-2 border-b px-4 py-3 backdrop-blur sm:px-6">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -170,8 +209,8 @@ export function AppShell({
           <OrgSwitcher />
         </div>
         <div className="flex items-center gap-1 sm:gap-1.5">
-          {orgId && <TeamDialog />}
-          <InvitationsMenu onAccepted={refreshImages} />
+          {orgId && <TeamDialog orgId={orgId} />}
+          <InvitationsMenu />
           <AccountMenu
             initialName={userName}
             initialEmail={userEmail}

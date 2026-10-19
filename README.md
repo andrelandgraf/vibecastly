@@ -14,6 +14,7 @@ Built entirely on the Neon backend platform — **Auth, Functions, Object Storag
 - **People + `@`-mentions** — upload a person's photo, then type `@` to reference them (keyboard-navigable dropdown). Their photo becomes a reference/starting point for the generation.
 - **Gallery CRUD** — every generated image is saved; rename the caption, download, or delete.
 - **Team workspaces (organizations)** — an org switcher, invite teammates by email (in-app, no email sending), pending → accept invitation flow, and a **shared gallery + shared people** where every member sees each other's work with author attribution.
+- **Live updates** via Neon Realtime — a teammate's new image, person, invitation, or membership change appears without a reload.
 - **Auth + account management** via Neon Auth (Better Auth) with email/password, plus an account menu to edit your name/avatar and change your password.
 - **Content-safety gatekeeper** — a strong moderation agent (gpt-5) vets every prompt before generation and blocks sexual, harassment/bullying, hateful, or violent requests with a clear reason.
 - **Per-user style memory** — a profile agent learns each creator's durable preferences from their prompts (stored in Postgres) and personalizes future generations.
@@ -42,6 +43,7 @@ Key decisions:
 - **Prompts are moderated before any work is done** — the gatekeeper classifies each prompt and unsafe ones are rejected (HTTP 422) with a clear reason; it fails open on classifier errors so a transient outage can't block everyone (the image model is the backstop).
 - **All object-storage access lives inside the Function**, where the platform injects valid S3 credentials at runtime. People photos and generated images are stored in Neon Object Storage buckets; the Function serves them via presigned URLs.
 - **Multi-tenancy** is enforced server-side: the client sends the active workspace via `x-organization-id`, and the Function verifies membership (`neon_auth.member`) and scopes every query + bucket key by `organization_id`.
+- **Live queries are sealed by the Function** (`POST /live/<name>`, `src/lib/live.ts`) and subscribed to from the browser over Neon Realtime. Each query joins `neon_auth.member` itself, so removing a member ends their updates. Gallery and people changes trigger a refetch of the list endpoint, which mints the presigned URLs; invitations, workspaces, and the team list render the live rows directly.
 
 ### Layout
 
@@ -66,11 +68,12 @@ export default defineConfig({
   auth: true,                         // Neon Auth (Better Auth) + organization plugin
   aiGateway: true,                    // model routing (image gen + gpt-5 moderation)
   buckets: { people: {}, generated: {} },
+  preview: { realtime: { allowedOrigins: ['https://vibecastly.vercel.app', 'http://localhost:3000'] } },
   functions: { imagegen: { source: 'src/index.ts' }, report: { source: 'src/report.ts' } },
 });
 ```
 
-Provision with `neon deploy` (alias for `neon config apply`).
+Provision with `neon deploy` (alias for `neon config apply`). Realtime requires Postgres 18.
 
 ## Local development
 
@@ -87,7 +90,7 @@ bun install
 bun run dev               # http://localhost:3000
 ```
 
-`web/.env.local` needs `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, and `NEXT_PUBLIC_AGENT_URL` (the Function URL).
+`web/.env.local` needs `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `NEXT_PUBLIC_AGENT_URL` (the Function URL), and `NEXT_PUBLIC_NEON_REALTIME_URL` (`NEON_REALTIME_URL` from `.env.local`).
 
 ## Deploy
 
@@ -96,7 +99,13 @@ neon deploy                                      # deploy the Function + apply n
 cd web && vercel build --prod && vercel deploy --prebuilt --prod
 ```
 
-Set on Vercel: `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `NEXT_PUBLIC_AGENT_URL` (and `DATABASE_URL` for schema migrations).
+The Function reads the branch's Realtime secret as `REALTIME_SECRET`; Functions do not receive user-set `NEON_*` variables. Set it once per branch, and again after `neon realtime rotate-secret`:
+
+```bash
+neon functions deploy imagegen --src src/index.ts --env "REALTIME_SECRET=$NEON_REALTIME_SECRET"
+```
+
+Set on Vercel: `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `NEXT_PUBLIC_AGENT_URL`, `NEXT_PUBLIC_NEON_REALTIME_URL` (and `DATABASE_URL` for schema migrations).
 
 ---
 
