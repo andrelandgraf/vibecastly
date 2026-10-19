@@ -73,26 +73,39 @@ jobs:
         if: steps.neon.outputs.existed == 'true'
         run: neon deploy --branch "$NEON_BRANCH" --project-id "$NEON_PROJECT_ID" --yes
 
+      # Every branch has its own Realtime secret, and Functions don't receive it automatically.
+      - name: Give the Function the branch's Realtime secret
+        run: |
+          secret=$(node -e 'const {parseEnv}=require("node:util");const v=parseEnv(require("node:fs").readFileSync(".env.local","utf8")).NEON_REALTIME_SECRET;if(!v){console.error("NEON_REALTIME_SECRET missing from .env.local");process.exit(1)}console.log(v)')
+          neon functions deploy imagegen --src src/index.ts --env "REALTIME_SECRET=$secret" \
+            --branch "$NEON_BRANCH" --project-id "$NEON_PROJECT_ID" > /dev/null
+
       - name: Deploy web preview to Vercel
         id: vercel
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          eval "$(node -e 'const {parseEnv}=require("node:util");const e=parseEnv(require("node:fs").readFileSync(".env.local","utf8"));for (const k of ["NEON_AUTH_BASE_URL","NEON_FUNCTION_IMAGEGEN_BASE_URL"]) { if (!e[k]) { console.error(k+" missing from .env.local"); process.exit(1) } console.log("export "+k+"="+JSON.stringify(e[k])) }')"
+          eval "$(node -e 'const {parseEnv}=require("node:util");const e=parseEnv(require("node:fs").readFileSync(".env.local","utf8"));for (const k of ["NEON_AUTH_BASE_URL","NEON_FUNCTION_IMAGEGEN_BASE_URL","NEON_REALTIME_URL"]) { if (!e[k]) { console.error(k+" missing from .env.local"); process.exit(1) } console.log("export "+k+"="+JSON.stringify(e[k])) }')"
           NEON_AUTH_COOKIE_SECRET="$(openssl rand -base64 32)"
           echo "::add-mask::$NEON_AUTH_COOKIE_SECRET"
           url=$(node scripts/vercel-deploy.mjs \
             NEON_AUTH_BASE_URL="$NEON_AUTH_BASE_URL" \
             NEON_AUTH_COOKIE_SECRET="$NEON_AUTH_COOKIE_SECRET" \
-            NEXT_PUBLIC_AGENT_URL="$NEON_FUNCTION_IMAGEGEN_BASE_URL")
+            NEXT_PUBLIC_AGENT_URL="$NEON_FUNCTION_IMAGEGEN_BASE_URL" \
+            NEXT_PUBLIC_NEON_REALTIME_URL="$NEON_REALTIME_URL")
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
-      # Neon Auth on the branch inherits production's trusted domains; the preview URL is new for every deploy.
-      - name: Trust the preview domain in Neon Auth
+      # Neon Auth and Realtime on the branch inherit production's origins; the preview URL is new for every deploy.
+      - name: Trust the preview domain in Neon Auth and Realtime
         env:
           URL: ${{ steps.vercel.outputs.url }}
           BRANCH_ID: ${{ steps.neon.outputs.branch_id }}
-        run: neon api "/projects/$NEON_PROJECT_ID/branches/$BRANCH_ID/auth/domains" -X POST -f domain="$URL" -f auth_provider=better_auth > /dev/null
+        run: |
+          neon api "/projects/$NEON_PROJECT_ID/branches/$BRANCH_ID/auth/domains" -X POST -f domain="$URL" -f auth_provider=better_auth > /dev/null
+          origins=$(neon api "/projects/$NEON_PROJECT_ID/branches/$BRANCH_ID/realtime" | jq -r '.allowed_origins[]')
+          args=()
+          for origin in $(printf "%s\n" $origins "$URL" | sort -u); do args+=(--allowed-origin "$origin"); done
+          neon realtime enable --branch "$BRANCH_ID" --project-id "$NEON_PROJECT_ID" "${args[@]}" > /dev/null
 
       - name: Comment preview URL
         env:
