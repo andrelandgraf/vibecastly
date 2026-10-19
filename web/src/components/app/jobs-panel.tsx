@@ -10,6 +10,7 @@ export type Job = {
   id: string;
   prompt: string;
   personIds: string[];
+  addonIds: string[];
   referenceImage?: File | null;
   status: 'running' | 'error';
   error?: string;

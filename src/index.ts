@@ -13,10 +13,17 @@ import { authenticate, corsHeaders } from './lib/auth';
 import { isMember } from './lib/org';
 import { putObject, deleteObject, getObjectBase64, presignGet } from './lib/storage';
 import { runImageAgent, moderatePrompt, type ModerationResult } from './lib/mastra';
-import { people, images, generationEvents } from './db/schema';
+import { people, images, generationEvents, addons } from './db/schema';
 
 const PEOPLE_BUCKET = 'people';
 const GENERATED_BUCKET = 'generated';
+const ADDONS_BUCKET = 'addons';
+const ADDON_KINDS = ['item', 'background'] as const;
+type AddonKind = (typeof ADDON_KINDS)[number];
+
+function isAddonKind(value: unknown): value is AddonKind {
+  return typeof value === 'string' && (ADDON_KINDS as readonly string[]).includes(value);
+}
 const MAX_IMAGES_PER_ORG = 10;
 const DAILY_GENERATION_LIMIT = 20;
 const GENERATION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -101,6 +108,10 @@ export default {
       if (path === '/people' && method === 'POST') return await createPerson(request, ctx);
       if (path.startsWith('/people/') && method === 'DELETE')
         return await deletePerson(request, ctx, path.slice('/people/'.length));
+      if (path === '/addons' && method === 'GET') return await listAddons(request, ctx);
+      if (path === '/addons' && method === 'POST') return await createAddon(request, ctx);
+      if (path.startsWith('/addons/') && method === 'DELETE')
+        return await deleteAddon(request, ctx, path.slice('/addons/'.length));
       if (path === '/images' && method === 'GET') return await listImages(request, ctx);
       if (path.startsWith('/images/') && method === 'PATCH')
         return await patchImage(request, ctx, path.slice('/images/'.length));
@@ -123,9 +134,10 @@ export default {
 };
 
 async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
-  const { messages, personIds, referenceImage } = (await request.json()) as {
+  const { messages, personIds, addonIds, referenceImage } = (await request.json()) as {
     messages: UIMessage[];
     personIds?: string[];
+    addonIds?: string[];
     referenceImage?: { base64?: unknown; contentType?: unknown } | null;
   };
 
@@ -193,7 +205,7 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
   // other unsafe requests.
   const moderation = await moderatePrompt(
     prompt,
-    (personIds?.length ?? 0) > 0 || attachedReference !== null,
+    (personIds?.length ?? 0) > 0 || (addonIds?.length ?? 0) > 0 || attachedReference !== null,
   );
   if (!moderation.allowed) {
     console.warn(
@@ -222,7 +234,10 @@ async function handleGenerate(request: Request, ctx: Ctx): Promise<Response> {
   // Build labeled reference parts so the model knows each image's role. Without
   // captions the provider tool treats trailing images as loose context; a short
   // text label before each image makes the attachment the actual generation base.
-  const referenceParts: ReferencePart[] = await loadReferenceImages(ctx.orgId, personIds ?? []);
+  const referenceParts: ReferencePart[] = [
+    ...(await loadReferenceImages(ctx.orgId, personIds ?? [])),
+    ...(await loadAddonImages(ctx.orgId, addonIds ?? [])),
+  ];
   if (attachedReference) {
     referenceParts.push({
       type: 'text',
@@ -379,6 +394,86 @@ async function deletePerson(request: Request, ctx: Ctx, id: string): Promise<Res
   return json(request, 200, { deleted: id });
 }
 
+async function listAddons(request: Request, ctx: Ctx): Promise<Response> {
+  const rows = await db
+    .select()
+    .from(addons)
+    .where(eq(addons.organizationId, ctx.orgId))
+    .orderBy(desc(addons.createdAt));
+  const result = await Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      createdByName: row.createdByName,
+      createdAt: row.createdAt,
+      imageUrl: await presignGet(ADDONS_BUCKET, row.bucketKey),
+    })),
+  );
+  return json(request, 200, { addons: result });
+}
+
+async function createAddon(request: Request, ctx: Ctx): Promise<Response> {
+  const body = (await request.json()) as {
+    name?: unknown;
+    kind?: unknown;
+    imageBase64?: unknown;
+    contentType?: unknown;
+  };
+  if (typeof body.name !== 'string' || !/^[\w-]+$/.test(body.name.trim())) {
+    return json(request, 400, { error: 'name is required: letters, digits, - and _ only' });
+  }
+  if (!isAddonKind(body.kind)) {
+    return json(request, 400, { error: `kind must be one of ${ADDON_KINDS.join(', ')}` });
+  }
+  if (typeof body.imageBase64 !== 'string' || body.imageBase64.length === 0) {
+    return json(request, 400, { error: 'imageBase64 is required' });
+  }
+  const contentType = typeof body.contentType === 'string' ? body.contentType : 'image/jpeg';
+  const buffer = Buffer.from(body.imageBase64, 'base64');
+  const key = `${ctx.orgId}/${randomUUID()}`;
+  await putObject(ADDONS_BUCKET, key, buffer, contentType);
+  const [row] = await db
+    .insert(addons)
+    .values({
+      organizationId: ctx.orgId,
+      createdBy: ctx.userId,
+      createdByName: ctx.userName,
+      name: body.name.trim(),
+      kind: body.kind,
+      bucketKey: key,
+      contentType,
+    })
+    .returning();
+  return json(request, 201, {
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    createdByName: row.createdByName,
+    createdAt: row.createdAt,
+    imageUrl: await presignGet(ADDONS_BUCKET, row.bucketKey),
+  });
+}
+
+async function deleteAddon(request: Request, ctx: Ctx, id: string): Promise<Response> {
+  const [row] = await db
+    .select()
+    .from(addons)
+    .where(and(eq(addons.id, id), eq(addons.organizationId, ctx.orgId)))
+    .limit(1);
+  if (!row) return json(request, 404, { error: 'Not found' });
+  await deleteObject(ADDONS_BUCKET, row.bucketKey).catch((e) => {
+    console.error('[addons] delete object failed:', e);
+    Sentry.captureException(e, {
+      level: 'warning',
+      tags: { component: 'storage', phase: 'delete', bucket: ADDONS_BUCKET },
+      extra: { orgId: ctx.orgId, bucketKey: row.bucketKey },
+    });
+  });
+  await db.delete(addons).where(and(eq(addons.id, id), eq(addons.organizationId, ctx.orgId)));
+  return json(request, 200, { deleted: id });
+}
+
 async function listImages(request: Request, ctx: Ctx): Promise<Response> {
   const rows = await db
     .select()
@@ -462,6 +557,40 @@ async function loadReferenceImages(
         level: 'warning',
         tags: { component: 'agent', phase: 'reference' },
         extra: { orgId, personId: row.id, bucketKey: row.bucketKey },
+      });
+    }
+  }
+  return parts;
+}
+
+async function loadAddonImages(orgId: string, addonIds: string[]): Promise<ReferencePart[]> {
+  if (addonIds.length === 0) return [];
+  const rows = await db
+    .select()
+    .from(addons)
+    .where(and(eq(addons.organizationId, orgId), inArray(addons.id, addonIds)));
+  const parts: ReferencePart[] = [];
+  for (const row of rows) {
+    try {
+      const base64 = await getObjectBase64(ADDONS_BUCKET, row.bucketKey);
+      parts.push({
+        type: 'text',
+        text:
+          row.kind === 'background'
+            ? `Background reference @${row.name} — use this image as the scene's background.`
+            : `Reference image of the item @${row.name} — include this exact item in the picture.`,
+      });
+      parts.push({
+        type: 'image',
+        image: Buffer.from(base64, 'base64'),
+        mediaType: row.contentType,
+      });
+    } catch (error) {
+      console.error(`[reference] failed to load addon ${row.id}:`, error);
+      Sentry.captureException(error, {
+        level: 'warning',
+        tags: { component: 'agent', phase: 'reference' },
+        extra: { orgId, addonId: row.id, bucketKey: row.bucketKey },
       });
     }
   }
