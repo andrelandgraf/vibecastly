@@ -4,7 +4,30 @@ import { useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import { ArrowUp, AtSign, ImagePlus, Loader2, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import type { PersonRecord } from '@/lib/agent-client';
+import type { AddonRecord, PersonRecord } from '@/lib/agent-client';
+
+type Taggable = {
+  id: string;
+  name: string;
+  imageUrl: string;
+  kind: 'person' | AddonRecord['kind'];
+};
+
+function toTaggables(people: PersonRecord[], addons: AddonRecord[]): Taggable[] {
+  return [
+    ...people.map((p) => ({ id: p.id, name: p.name, imageUrl: p.photoUrl, kind: 'person' as const })),
+    ...addons.map((a) => ({ id: a.id, name: a.name, imageUrl: a.imageUrl, kind: a.kind })),
+  ];
+}
+
+function KindBadge({ kind }: { kind: Taggable['kind'] }) {
+  if (kind === 'person') return null;
+  return (
+    <span className="bg-background/70 text-muted-foreground rounded px-1 text-[10px] font-normal capitalize">
+      {kind}
+    </span>
+  );
+}
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -23,12 +46,19 @@ const SUGGESTIONS = [
 
 export function MentionComposer({
   people,
+  addons,
   status,
   onSubmit,
 }: {
   people: PersonRecord[];
+  addons: AddonRecord[];
   status: 'submitted' | 'streaming' | 'ready' | 'error';
-  onSubmit: (text: string, personIds: string[], referenceImage: File | null) => void | Promise<void>;
+  onSubmit: (
+    text: string,
+    personIds: string[],
+    addonIds: string[],
+    referenceImage: File | null,
+  ) => void | Promise<void>;
 }) {
   const [text, setText] = useState('');
   const [query, setQuery] = useState<string | null>(null);
@@ -98,20 +128,21 @@ export function MentionComposer({
     }
   }
 
+  const taggables = toTaggables(people, addons);
   const matches =
     query !== null
-      ? people.filter((p) => p.name.toLowerCase().includes(query.toLowerCase())).slice(0, 6)
+      ? taggables.filter((t) => t.name.toLowerCase().includes(query.toLowerCase())).slice(0, 6)
       : [];
   const showDropdown = query !== null && matches.length > 0;
 
-  const referenced = people.filter((p) => mentionRegex(p.name).test(text));
+  const referenced = taggables.filter((t) => mentionRegex(t.name).test(text));
 
   function syncQuery(value: string, caret: number) {
     const match = value.slice(0, caret).match(/@([\w-]*)$/);
     setQuery(match ? match[1] : null);
   }
 
-  function insertMention(person: PersonRecord) {
+  function insertMention(person: Taggable) {
     const el = textareaRef.current;
     const caret = el?.selectionStart ?? text.length;
     const before = text.slice(0, caret).replace(/@([\w-]*)$/, `@${person.name} `);
@@ -128,7 +159,8 @@ export function MentionComposer({
     const value = text.trim();
     if (!value || busy) return;
     const personIds = people.filter((p) => mentionRegex(p.name).test(text)).map((p) => p.id);
-    await onSubmit(value, personIds, referenceImage);
+    const addonIds = addons.filter((a) => mentionRegex(a.name).test(text)).map((a) => a.id);
+    await onSubmit(value, personIds, addonIds, referenceImage);
     setText('');
     setQuery(null);
     clearReferenceImage();
@@ -160,15 +192,17 @@ export function MentionComposer({
           {referenced.map((p) => (
             <span
               key={p.id}
+              data-testid="mention-chip"
               className="bg-primary/10 text-primary inline-flex items-center gap-1.5 rounded-full py-1 pr-2.5 pl-1 text-xs font-medium"
             >
-              <Avatar className="size-5">
-                <AvatarImage src={p.photoUrl} alt={p.name} />
+              <Avatar className={`size-5 ${p.kind === 'person' ? '' : 'rounded-md'}`}>
+                <AvatarImage src={p.imageUrl} alt={p.name} />
                 <AvatarFallback className="text-[10px]">
                   {p.name.slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
               {p.name}
+              <KindBadge kind={p.kind} />
             </span>
           ))}
         </div>
@@ -195,7 +229,7 @@ export function MentionComposer({
           ref={textareaRef}
           value={text}
           rows={1}
-          placeholder="Describe an image…  Tip: type @ to reference a person"
+          placeholder="Describe an image…  Tip: type @ to reference a person or addon"
           className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
           onPaste={handlePaste}
           onChange={(e) => {
@@ -258,7 +292,7 @@ export function MentionComposer({
         {showDropdown && (
           <div className="absolute top-full left-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border bg-popover p-1 shadow-xl">
             <div className="text-muted-foreground flex items-center gap-1.5 px-2 py-1 text-xs">
-              <AtSign className="size-3" /> Reference a person
+              <AtSign className="size-3" /> Reference a person or addon
             </div>
             {matches.map((person, i) => (
               <button
@@ -274,13 +308,14 @@ export function MentionComposer({
                   insertMention(person);
                 }}
               >
-                <Avatar className="size-6">
-                  <AvatarImage src={person.photoUrl} alt={person.name} />
+                <Avatar className={`size-6 ${person.kind === 'person' ? '' : 'rounded-md'}`}>
+                  <AvatarImage src={person.imageUrl} alt={person.name} />
                   <AvatarFallback className="text-[10px]">
                     {person.name.slice(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                {person.name}
+                <span className="flex-1">{person.name}</span>
+                <KindBadge kind={person.kind} />
               </button>
             ))}
           </div>

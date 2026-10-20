@@ -9,6 +9,7 @@ export default defineConfig({
   buckets: {
     people: {},
     generated: {},
+    addons: {},
   },
   preview: {
     realtime: {
