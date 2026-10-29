@@ -17,6 +17,26 @@ export const people = pgTable(
   (table) => [index('people_org_idx').on(table.organizationId)],
 );
 
+// Things a prompt can @-tag besides people: an item to include in the picture or
+// a background image to set the scene. Workspace-scoped like people.
+export const addons = pgTable(
+  'addons',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text('organization_id').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdByName: text('created_by_name').notNull().default(''),
+    name: text('name').notNull(),
+    kind: text('kind', { enum: ['item', 'background'] }).notNull(),
+    bucketKey: text('bucket_key').notNull(),
+    contentType: text('content_type').notNull().default('image/jpeg'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [index('addons_org_idx').on(table.organizationId)],
+);
+
 // Per-user agent memory: a persistent, resource-scoped profile of how each
 // creator likes their AI images. Kept in our own Postgres (not @mastra/memory)
 // because that package + @mastra/pg add ~6MB to the function bundle and blow the

@@ -13,13 +13,16 @@ const isMember = `exists (
   where m."organizationId"::text = $1 and m."userId"::text = $2
 )`;
 
-export type LiveName = 'images' | 'people' | 'team-members' | 'team-invitations';
+export type LiveName = 'images' | 'people' | 'addons' | 'team-members' | 'team-invitations';
 
 const workspaceQueries = {
   images: `select id, prompt from images
     where organization_id = $1 and ${isMember}
     order by created_at desc, id`,
   people: `select id, name from people
+    where organization_id = $1 and ${isMember}
+    order by created_at desc, id`,
+  addons: `select id, name, kind from addons
     where organization_id = $1 and ${isMember}
     order by created_at desc, id`,
   'team-members': `select mem.id, mem.role, u.name, u.email, u.image
